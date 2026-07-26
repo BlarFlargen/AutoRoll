@@ -182,14 +182,9 @@ function A:BuildOptions()
     title:SetText("AutoRoll " .. A.version)
 
     local sub = panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    sub:SetPoint("TOPLEFT", 16, -38)
-    sub:SetWidth(580)
+    sub:SetPoint("TOPLEFT", 16, -40)
     sub:SetJustifyH("LEFT")
-    sub:SetText("Rolls on group loot for you: Need on gear your class wears, " ..
-                "Greed on anything worth money, Pass on the rest. Every decision " ..
-                "is made by an ordered list of rules, and the first one that " ..
-                "matches wins.")
-    sub:SetHeight(44)
+    sub:SetText("Rolls on group loot automatically.")
 
     ------------------------------------------------------------ scroll body
     local scroll = CreateFrame("ScrollFrame", "AutoRollOptionsScroll", panel,
