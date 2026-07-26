@@ -1,2 +1,2 @@
 # AutoRoll
-AutoRoll Addon for 3.3.5a World of Warcraft
+AutoRoll Addon for 3.3.5a World of Warcraft, made with AI
