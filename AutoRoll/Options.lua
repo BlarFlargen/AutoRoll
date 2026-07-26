@@ -34,7 +34,6 @@ local function MakeCheck(parent, label, tooltip, x, y, get, set)
     check:SetHeight(24)
     check:SetPoint("TOPLEFT", x, y)
 
-    -- 3.3.5a's SetFontObject wants the font object itself, not its name.
     local text = _G[name .. "Text"]
     text:SetText(label)
     text:SetFontObject(GameFontHighlightSmall)
@@ -151,8 +150,6 @@ end
 
 local ACTION_CHOICES = { "NEED", "GREED", "PASS", "IGNORE" }
 
---- Quality names come from the client, so they are already localised and
---- already carry the right colour.
 local function QualityChoices()
     local out = {}
     for q = 2, 6 do
@@ -194,10 +191,9 @@ function A:BuildOptions()
 
     local content = CreateFrame("Frame", "AutoRollOptionsContent", scroll)
     content:SetWidth(CONTENT_WIDTH)
-    content:SetHeight(1200)          -- corrected to the real height below
+    content:SetHeight(1200)         
     scroll:SetScrollChild(content)
 
-    -- UIPanelScrollFrameTemplate has no wheel handler of its own on 3.3.5a.
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(self, delta)
         local bar = _G[self:GetName() .. "ScrollBar"]
@@ -255,8 +251,8 @@ function A:BuildOptions()
     end)
     y = y - 44
 
-    MakeDropdown(C, "Unticked armor, BoE", X - 4, y, "wrongArmorBoEAction", ACTION_CHOICES, 100)
-    MakeDropdown(C, "Unticked armor, BoP", X + 190, y, "wrongArmorBoPAction", ACTION_CHOICES, 100)
+    MakeDropdown(C, "Unchecked armor, BoE", X - 4, y, "wrongArmorBoEAction", ACTION_CHOICES, 100)
+    MakeDropdown(C, "Unchecked armor, BoP", X + 190, y, "wrongArmorBoPAction", ACTION_CHOICES, 100)
     y = y - 52
 
     ---------------------------------------------------------------- weapons
@@ -281,8 +277,8 @@ function A:BuildOptions()
     end)
     y = y - 44
 
-    MakeDropdown(C, "Unticked weapon, BoE", X - 4, y, "wrongWeaponBoEAction", ACTION_CHOICES, 100)
-    MakeDropdown(C, "Unticked weapon, BoP", X + 190, y, "wrongWeaponBoPAction", ACTION_CHOICES, 100)
+    MakeDropdown(C, "Unchecked weapon, BoE", X - 4, y, "wrongWeaponBoEAction", ACTION_CHOICES, 100)
+    MakeDropdown(C, "Unchecked weapon, BoP", X + 190, y, "wrongWeaponBoPAction", ACTION_CHOICES, 100)
     y = y - 52
 
     MakeCheck(C, "Require the item be usable",
@@ -370,8 +366,6 @@ function A:BuildOptions()
     y = y - 40
 
     ----------------------------------------------------------------- finish
-    -- Size the scroll child to what we actually laid out. Getting this wrong
-    -- is what makes a scroll frame refuse to scroll to the last widget.
     content:SetHeight(math.abs(y) + 20)
 
     panel.refresh = function() A:RefreshOptions() end
