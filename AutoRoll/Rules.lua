@@ -34,18 +34,30 @@ local function ScanLink(link)
     return scanner
 end
 
+local SIDES = { "Left", "Right" }
+
+--- Walks both columns of every line.
+--
+--  Reading only TextLeft is a trap. Equipment tooltips put the equip slot on
+--  the left of line 2 ("Two-Hand", "Main Hand", "Chest") and the item's type
+--  on the RIGHT ("Sword", "Plate") -- and when you lack the proficiency, it is
+--  the right-hand string that turns red. A left-only scan therefore catches
+--  "Requires Level 80" but silently misses every weapon and armor
+--  proficiency restriction in the game.
 local function ScanLines(link, callback)
     local tt = ScanLink(link)
     for i = 2, tt:NumLines() do
-        local fs = _G["AutoRollScanTooltipTextLeft" .. i]
-        if fs then
-            local text = fs:GetText()
-            if text then
-                local r, g, b = fs:GetTextColor()
-                local result = callback(text, r, g, b, i)
-                if result ~= nil then
-                    tt:Hide()
-                    return result
+        for s = 1, #SIDES do
+            local fs = _G["AutoRollScanTooltipText" .. SIDES[s] .. i]
+            if fs then
+                local text = fs:GetText()
+                if text and text ~= "" then
+                    local r, g, b = fs:GetTextColor()
+                    local result = callback(text, r, g, b, i)
+                    if result ~= nil then
+                        tt:Hide()
+                        return result
+                    end
                 end
             end
         end
@@ -126,96 +138,6 @@ A.GREEDABLE_CLASSES = {
     [LC.PROJECTILE] = true,
 }
 
---=========================================================================
--- Armor types
---
--- The red-tooltip usability check cannot help here, and this is the reason:
--- armor type is NOT a client-enforced restriction. A paladin can equip a
--- cloth chestpiece perfectly well -- it is simply a terrible idea. Nothing
--- turns red, so cloth sails through every usability test and then wins on
--- item level, because lighter gear of the same tier carries a higher ilvl.
---
--- Weapon and shield proficiency IS client-enforced, so red text still covers
--- those correctly. This table only needs the four armor types.
---=========================================================================
-
-local LA = {}
-do
-    local s = { GetAuctionItemSubClasses(2) }   -- 2 = Armor
-    LA.MISC, LA.CLOTH, LA.LEATHER, LA.MAIL, LA.PLATE = s[1], s[2], s[3], s[4], s[5]
-
-    -- If the indices are not what we expect on this client, the four types
-    -- collapse into duplicates or nils. Fall back rather than silently
-    -- classifying every piece of armor as the wrong type.
-    local seen, sane = {}, true
-    for _, v in ipairs({ LA.CLOTH, LA.LEATHER, LA.MAIL, LA.PLATE }) do
-        if type(v) ~= "string" or v == "" or seen[v] then sane = false end
-        seen[v or ""] = true
-    end
-    if not sane then
-        LA.MISC, LA.CLOTH, LA.LEATHER, LA.MAIL, LA.PLATE =
-            "Miscellaneous", "Cloth", "Leather", "Mail", "Plate"
-        LA.fellBack = true
-    end
-end
-A.LA = LA
-
--- Everything else in the Armor class -- cloaks, rings, necks, trinkets,
--- shields, relics -- is either wearable by everyone or already gated by the
--- client, so it is deliberately not listed here.
-A.ARMOR_TYPES = {
-    [LA.CLOTH] = true, [LA.LEATHER] = true, [LA.MAIL] = true, [LA.PLATE] = true,
-}
-A.ARMOR_TYPE_ORDER = { LA.CLOTH, LA.LEATHER, LA.MAIL, LA.PLATE }
-
--- Index 1 is the class's top type; index 2 is what it wears before level 40.
-local CLASS_ARMOR = {
-    WARRIOR     = { LA.PLATE,   LA.MAIL    },
-    PALADIN     = { LA.PLATE,   LA.MAIL    },
-    DEATHKNIGHT = { LA.PLATE               },
-    HUNTER      = { LA.MAIL,    LA.LEATHER },
-    SHAMAN      = { LA.MAIL,    LA.LEATHER },
-    ROGUE       = { LA.LEATHER             },
-    DRUID       = { LA.LEATHER             },
-    PRIEST      = { LA.CLOTH               },
-    MAGE        = { LA.CLOTH               },
-    WARLOCK     = { LA.CLOTH               },
-}
-
---- The armor types this character should roll Need on.
---  db.armorNeed nil means "work it out from class and level"; setting it to a
---  table pins the choice manually.
-function A:GetArmorNeedSet()
-    if A.db and A.db.armorNeed then return A.db.armorNeed end
-
-    local _, token = UnitClass("player")
-    local list = CLASS_ARMOR[token or ""] or {}
-    local set  = {}
-    local level = UnitLevel("player") or 80
-
-    for i, atype in ipairs(list) do
-        if i == 1 or level < 40 then set[atype] = true end
-    end
-    if not next(set) then
-        for _, atype in ipairs(list) do set[atype] = true end
-    end
-    return set
-end
-
---- Materialise the auto set into a real table so it can be edited.
-function A:SetArmorType(atype, wanted)
-    if not A.db.armorNeed then
-        local copy = {}
-        for k, v in pairs(A:GetArmorNeedSet()) do copy[k] = v end
-        A.db.armorNeed = copy
-    end
-    A.db.armorNeed[atype] = wanted or nil
-end
-
-function A:ResetArmorTypes()
-    A.db.armorNeed = nil
-end
-
 function A:IsLockbox(link, name)
     local n = (name or ""):lower()
     if n:find("lockbox") or n:find("strongbox") or n:find("footlocker") then
@@ -227,6 +149,183 @@ function A:IsLockbox(link, name)
         if t:find("locked") or t:find("requires lockpicking") then return true end
     end) == true
 end
+
+--=========================================================================
+-- Equippable types
+--
+-- Armor type is not a client-enforced restriction, so any class can equip any
+-- of the four types and nothing turns red. Weapon proficiency IS enforced and
+-- does turn red, but relying on that alone means trusting a tooltip scrape for
+-- a decision worth real loot. Both get an explicit class table instead, with
+-- the red-text check kept as a second line of defence.
+--
+-- The type NAMES are read from the client rather than hardcoded, so matching
+-- works on any locale: both these strings and ctx.itemSubClass come from the
+-- same source. Only the class defaults depend on the index order below, and
+-- those are user-correctable in the options panel.
+--=========================================================================
+
+local LA, LW = {}, {}
+do
+    local a = { GetAuctionItemSubClasses(2) }   -- 2 = Armor
+    LA.MISC,   LA.CLOTH,  LA.LEATHER, LA.MAIL,  LA.PLATE  = a[1], a[2], a[3], a[4], a[5]
+    LA.SHIELD, LA.LIBRAM, LA.IDOL,    LA.TOTEM, LA.SIGIL  = a[6], a[7], a[8], a[9], a[10]
+
+    local w = { GetAuctionItemSubClasses(1) }   -- 1 = Weapon
+    LW.AXE1,  LW.AXE2,   LW.BOW,   LW.GUN     = w[1],  w[2],  w[3],  w[4]
+    LW.MACE1, LW.MACE2,  LW.POLE,  LW.SWORD1  = w[5],  w[6],  w[7],  w[8]
+    LW.SWORD2,LW.STAFF,  LW.FIST,  LW.WMISC   = w[9],  w[10], w[11], w[12]
+    LW.DAGGER,LW.THROWN, LW.XBOW,  LW.WAND    = w[13], w[14], w[15], w[16]
+    LW.POLE_FISH                              = w[17]
+
+    -- If the indices are not what we expect on this client the entries collapse
+    -- into duplicates or nils. Fall back rather than silently misclassifying
+    -- every drop.
+    local function sane(list)
+        local seen = {}
+        for _, v in ipairs(list) do
+            if type(v) ~= "string" or v == "" or seen[v] then return false end
+            seen[v] = true
+        end
+        return true
+    end
+
+    if not sane({ LA.CLOTH, LA.LEATHER, LA.MAIL, LA.PLATE, LA.SHIELD,
+                  LA.LIBRAM, LA.IDOL, LA.TOTEM, LA.SIGIL }) then
+        LA.MISC,   LA.CLOTH,  LA.LEATHER, LA.MAIL,  LA.PLATE =
+            "Miscellaneous", "Cloth", "Leather", "Mail", "Plate"
+        LA.SHIELD, LA.LIBRAM, LA.IDOL,    LA.TOTEM, LA.SIGIL =
+            "Shields", "Librams", "Idols", "Totems", "Sigils"
+        LA.fellBack = true
+    end
+
+    if not sane({ LW.AXE1, LW.AXE2, LW.BOW, LW.GUN, LW.MACE1, LW.MACE2, LW.POLE,
+                  LW.SWORD1, LW.SWORD2, LW.STAFF, LW.FIST, LW.DAGGER,
+                  LW.THROWN, LW.XBOW, LW.WAND }) then
+        LW.AXE1,   LW.AXE2,  LW.BOW,  LW.GUN   =
+            "One-Handed Axes", "Two-Handed Axes", "Bows", "Guns"
+        LW.MACE1,  LW.MACE2, LW.POLE, LW.SWORD1 =
+            "One-Handed Maces", "Two-Handed Maces", "Polearms", "One-Handed Swords"
+        LW.SWORD2, LW.STAFF,  LW.FIST, LW.WMISC =
+            "Two-Handed Swords", "Staves", "Fist Weapons", "Miscellaneous"
+        LW.DAGGER, LW.THROWN, LW.XBOW, LW.WAND  =
+            "Daggers", "Thrown", "Crossbows", "Wands"
+        LW.POLE_FISH = "Fishing Poles"
+        LW.fellBack = true
+    end
+end
+A.LA, A.LW = LA, LW
+
+-- Armor with no type of its own -- cloaks, rings, necks, trinkets -- is
+-- wearable by everyone and is deliberately absent here.
+A.ARMOR_TYPE_ORDER = {
+    LA.CLOTH, LA.LEATHER, LA.MAIL, LA.PLATE,
+    LA.SHIELD, LA.LIBRAM, LA.IDOL, LA.TOTEM, LA.SIGIL,
+}
+A.WEAPON_TYPE_ORDER = {
+    LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2,
+    LW.DAGGER, LW.FIST, LW.POLE, LW.STAFF,
+    LW.BOW, LW.XBOW, LW.GUN, LW.THROWN, LW.WAND,
+}
+
+A.ARMOR_TYPES, A.WEAPON_TYPES = {}, {}
+for _, t in ipairs(A.ARMOR_TYPE_ORDER)  do A.ARMOR_TYPES[t]  = true end
+for _, t in ipairs(A.WEAPON_TYPE_ORDER) do A.WEAPON_TYPES[t] = true end
+
+-- Shields and relics were added after the first release; migration uses this
+-- to top up a set the player had already customised.
+A.ARMOR_TYPES_ADDED_V3 = {
+    [LA.SHIELD] = true, [LA.LIBRAM] = true,
+    [LA.IDOL]   = true, [LA.TOTEM]  = true, [LA.SIGIL] = true,
+}
+
+-- top: the class's main armor type. low: what it wears before level 40.
+-- extra: shields and relics, which have no level gate.
+local CLASS_ARMOR = {
+    WARRIOR     = { top = LA.PLATE,   low = LA.MAIL,    extra = { LA.SHIELD } },
+    PALADIN     = { top = LA.PLATE,   low = LA.MAIL,    extra = { LA.SHIELD, LA.LIBRAM } },
+    DEATHKNIGHT = { top = LA.PLATE,                     extra = { LA.SIGIL } },
+    HUNTER      = { top = LA.MAIL,    low = LA.LEATHER },
+    SHAMAN      = { top = LA.MAIL,    low = LA.LEATHER, extra = { LA.SHIELD, LA.TOTEM } },
+    ROGUE       = { top = LA.LEATHER },
+    DRUID       = { top = LA.LEATHER,                   extra = { LA.IDOL } },
+    PRIEST      = { top = LA.CLOTH },
+    MAGE        = { top = LA.CLOTH },
+    WARLOCK     = { top = LA.CLOTH },
+}
+
+local CLASS_WEAPONS = {
+    WARRIOR     = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2,
+                    LW.DAGGER, LW.FIST, LW.POLE, LW.STAFF,
+                    LW.BOW, LW.XBOW, LW.GUN, LW.THROWN },
+    PALADIN     = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2, LW.POLE },
+    DEATHKNIGHT = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2, LW.POLE },
+    HUNTER      = { LW.AXE1, LW.AXE2, LW.SWORD1, LW.SWORD2, LW.POLE, LW.STAFF,
+                    LW.DAGGER, LW.FIST, LW.BOW, LW.XBOW, LW.GUN, LW.THROWN },
+    ROGUE       = { LW.AXE1, LW.MACE1, LW.SWORD1, LW.DAGGER, LW.FIST,
+                    LW.BOW, LW.XBOW, LW.GUN, LW.THROWN },
+    SHAMAN      = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.STAFF, LW.FIST, LW.DAGGER },
+    DRUID       = { LW.MACE1, LW.MACE2, LW.POLE, LW.STAFF, LW.FIST, LW.DAGGER },
+    PRIEST      = { LW.MACE1, LW.STAFF, LW.DAGGER, LW.WAND },
+    MAGE        = { LW.SWORD1, LW.STAFF, LW.DAGGER, LW.WAND },
+    WARLOCK     = { LW.SWORD1, LW.STAFF, LW.DAGGER, LW.WAND },
+}
+
+local function PlayerClass()
+    local _, token = UnitClass("player")
+    return token or ""
+end
+
+--- What this class would roll Need on, ignoring any manual override.
+function A:GetArmorDefaultSet()
+    local def = CLASS_ARMOR[PlayerClass()]
+    local set = {}
+    if not def then return set end
+
+    if def.top then set[def.top] = true end
+    if def.low and (UnitLevel("player") or 80) < 40 then set[def.low] = true end
+    for _, t in ipairs(def.extra or {}) do set[t] = true end
+    return set
+end
+
+function A:GetWeaponDefaultSet()
+    local set = {}
+    for _, t in ipairs(CLASS_WEAPONS[PlayerClass()] or {}) do set[t] = true end
+    return set
+end
+
+--- db.armorNeed / db.weaponNeed nil means "work it out from class and level";
+--  a table pins the choice manually.
+function A:GetArmorNeedSet()
+    if A.db and A.db.armorNeed then return A.db.armorNeed end
+    return A:GetArmorDefaultSet()
+end
+
+function A:GetWeaponNeedSet()
+    if A.db and A.db.weaponNeed then return A.db.weaponNeed end
+    return A:GetWeaponDefaultSet()
+end
+
+--- Materialise an auto set into a real table so it can be edited.
+local function Materialise(key, defaultFn)
+    if not A.db[key] then
+        local copy = {}
+        for k, v in pairs(defaultFn(A)) do copy[k] = v end
+        A.db[key] = copy
+    end
+    return A.db[key]
+end
+
+function A:SetArmorType(atype, wanted)
+    Materialise("armorNeed", A.GetArmorDefaultSet)[atype] = wanted or nil
+end
+
+function A:SetWeaponType(wtype, wanted)
+    Materialise("weaponNeed", A.GetWeaponDefaultSet)[wtype] = wanted or nil
+end
+
+function A:ResetArmorTypes()  A.db.armorNeed  = nil end
+function A:ResetWeaponTypes() A.db.weaponNeed = nil end
 
 --=========================================================================
 -- Item level comparison
@@ -441,52 +540,63 @@ A:RegisterRule{
     end,
 }
 
--- 89 -- Armor type. This is where gear is decided.
+-- 88 / 89 -- Weapon and armor type. This is where gear is decided.
 --
---       Selecting a type in the options IS the instruction to Need it, so
---       there is no separate "should I need gear" setting to keep in sync.
---       An unselected type falls to the BoE/BoP actions below.
+--   Ticking a type in the options IS the instruction to Need it, so there is
+--   no separate "should I need gear" setting to keep in sync. An unticked type
+--   falls to the BoE/BoP actions.
 --
---       Must sit ahead of the BoE rule at 130, or a bind-on-equip drop would
---       be judged as generic loot before anyone looked at what it is.
+--   Both sit ahead of the BoE rule at 130, so a bind-on-equip drop is judged
+--   by what it is before anyone treats it as generic loot.
+
+--- Shared body: ticked -> Need (if usable), unticked -> the configured action.
+local function TypedGearRule(self, ctx, typeSet, needSet, boeKey, bopKey, label)
+    local itype = ctx.itemSubClass
+    if not itype or not typeSet[itype] then return end          -- untyped, not ours
+
+    if needSet[itype] then
+        -- Needing gear you cannot equip is never right. This reads red tooltip
+        -- text, and a custom server that colours its own requirement lines red
+        -- will trip it -- turn requireUsable off if /ar trace shows that.
+        if self.db.requireUsable then
+            local unusable, why = self:IsUnusable(ctx.link)
+            if unusable then
+                self:Debug(label .. " ticked but item is unusable: " .. tostring(why))
+                return
+            end
+        end
+        return ACT.NEED, ("%s %s"):format(label, itype)
+    end
+
+    local action = ctx.bindOnPickUp and self.db[bopKey] or self.db[boeKey]
+    return NamedAction(action), ("%s not ticked"):format(itype)
+end
+
+A:RegisterRule{
+    key = "weaponType", label = "Weapon type", priority = 88,
+    fn = function(self, ctx)
+        if ctx.itemClass ~= LC.WEAPON then return end
+        return TypedGearRule(self, ctx, A.WEAPON_TYPES, self:GetWeaponNeedSet(),
+                             "wrongWeaponBoEAction", "wrongWeaponBoPAction", "weapon type")
+    end,
+}
+
 A:RegisterRule{
     key = "armorType", label = "Armor type", priority = 89,
     fn = function(self, ctx)
         if ctx.itemClass ~= LC.ARMOR then return end
-
-        local atype = ctx.itemSubClass
-        if not atype or not A.ARMOR_TYPES[atype] then return end   -- cloak, ring, shield...
-
-        if self:GetArmorNeedSet()[atype] then
-            -- Needing gear you cannot equip is never right. This reads red
-            -- tooltip text, and a custom server that colours its own
-            -- requirement lines red will trip it -- turn requireUsable off if
-            -- /ar trace shows that happening.
-            if self.db.requireUsable then
-                local unusable, why = self:IsUnusable(ctx.link)
-                if unusable then
-                    self:Debug("armor type selected but item is unusable: " .. tostring(why))
-                    return
-                end
-            end
-            return ACT.NEED, ("armor type %s"):format(atype)
-        end
-
-        local action = ctx.bindOnPickUp and self.db.wrongArmorBoPAction
-                                        or  self.db.wrongArmorBoEAction
-        return NamedAction(action), ("%s not selected"):format(atype)
+        return TypedGearRule(self, ctx, A.ARMOR_TYPES, self:GetArmorNeedSet(),
+                             "wrongArmorBoEAction", "wrongArmorBoPAction", "armor type")
     end,
 }
 
--- 90 -- Everything else you can equip: weapons, and armor with no type of its
---       own (cloaks, rings, necks, trinkets, shields, relics). Typed armor was
---       already settled at 89.
+-- 90 -- Armor with no type of its own: cloaks, rings, necks, trinkets. Every
+--       class can wear these, so there is nothing to tick.
 A:RegisterRule{
-    key = "usableGear", label = "Other usable gear", priority = 90,
+    key = "usableGear", label = "Cloaks, rings, trinkets", priority = 90,
     fn = function(self, ctx)
-        if ctx.itemClass ~= LC.ARMOR and ctx.itemClass ~= LC.WEAPON then return end
-        if ctx.itemClass == LC.ARMOR and ctx.itemSubClass
-           and A.ARMOR_TYPES[ctx.itemSubClass] then return end
+        if ctx.itemClass ~= LC.ARMOR then return end                      -- weapons: rule 88
+        if ctx.itemSubClass and A.ARMOR_TYPES[ctx.itemSubClass] then return end  -- typed: rule 89
 
         if self.db.requireUsable then
             local unusable, why = self:IsUnusable(ctx.link)

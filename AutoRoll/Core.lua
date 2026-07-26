@@ -326,12 +326,19 @@ function A:TraceItem(input)
         unusable and "|cffff4444no|r" or "|cff1eff00yes|r",
         unusable and ("  red line: " .. tostring(why)) or ""))
 
+    local typeSet, needSet, report
     if itemClass == A.LC.ARMOR and itemSubClass and A.ARMOR_TYPES[itemSubClass] then
-        local wanted = A:GetArmorNeedSet()[itemSubClass]
-        A:Print(("  armor type=%s  your class rolls on: %s")
-            :format(wanted and ("|cff1eff00" .. itemSubClass .. "|r")
+        typeSet, needSet, report = "armor", A:GetArmorNeedSet(), A:ArmorSetString()
+    elseif itemClass == A.LC.WEAPON and itemSubClass and A.WEAPON_TYPES[itemSubClass] then
+        typeSet, needSet, report = "weapon", A:GetWeaponNeedSet(), A:WeaponSetString()
+    end
+    if typeSet then
+        local ticked = needSet[itemSubClass]
+        A:Print(("  %s type=%s  ticked: %s")
+            :format(typeSet,
+                    ticked and ("|cff1eff00" .. itemSubClass .. "|r")
                             or ("|cffff4444" .. itemSubClass .. "|r"),
-                    A:ArmorSetString()))
+                    report))
     end
 
     local delta, equipped = A:GetUpgradeDelta(link)
@@ -479,57 +486,73 @@ function A:Probe()
     A:Print("---------------")
 end
 
---- Human-readable list of the armor types this character rolls Need on.
-function A:ArmorSetString()
-    local set, out = A:GetArmorNeedSet(), {}
-    for _, atype in ipairs(A.ARMOR_TYPE_ORDER) do
-        if set[atype] then table.insert(out, atype) end
+--- Human-readable list of the types this character rolls Need on.
+local function SetString(order, set, manual)
+    local out = {}
+    for _, t in ipairs(order) do
+        if set[t] then table.insert(out, t) end
     end
     if #out == 0 then return "|cffff4444none|r" end
-    return table.concat(out, ", ") .. (A.db.armorNeed and "  |cff808080(manual)|r"
-                                                       or "  |cff808080(auto)|r")
+    return table.concat(out, ", ") ..
+        (manual and "  |cff808080(manual)|r" or "  |cff808080(auto)|r")
 end
 
-local function HandleArmor(sub, rest)
+function A:ArmorSetString()
+    return SetString(A.ARMOR_TYPE_ORDER, A:GetArmorNeedSet(), A.db.armorNeed)
+end
+
+function A:WeaponSetString()
+    return SetString(A.WEAPON_TYPE_ORDER, A:GetWeaponNeedSet(), A.db.weaponNeed)
+end
+
+--- One handler for both /ar armor and /ar weapon; they differ only in data.
+local function HandleTypes(kind, sub, rest)
+    local isArmor = (kind == "armor")
+    local order   = isArmor and A.ARMOR_TYPE_ORDER or A.WEAPON_TYPE_ORDER
+    local setter  = isArmor and A.SetArmorType     or A.SetWeaponType
+    local resetFn = isArmor and A.ResetArmorTypes  or A.ResetWeaponTypes
+    local report  = isArmor and A.ArmorSetString   or A.WeaponSetString
+    local fellBack = isArmor and A.LA.fellBack or A.LW.fellBack
+
     if sub == "" or sub == "list" then
         local _, token = UnitClass("player")
-        A:Print(("class %s level %d rolls Need on: %s")
-            :format(tostring(token), UnitLevel("player") or 0, A:ArmorSetString()))
-        A:Print("client reports these armor types: " ..
-            table.concat(A.ARMOR_TYPE_ORDER, ", ") ..
-            (A.LA.fellBack and "  |cffff8800(detection fell back to English)|r" or ""))
-        A:Print("usage: /ar armor add|remove <type>  |  /ar armor auto")
+        A:Print(("%s %s level %d rolls Need on:"):format(
+            kind, tostring(token), UnitLevel("player") or 0))
+        A:Print("  " .. report(A))
+        A:Print("  available: " .. table.concat(order, ", ") ..
+            (fellBack and "  |cffff8800(detection fell back to English)|r" or ""))
+        A:Print(("usage: /ar %s add|remove <type>  |  /ar %s auto"):format(kind, kind))
         return
     end
 
     if sub == "auto" or sub == "reset" then
-        A:ResetArmorTypes()
-        A:Print("armor types back to class default: " .. A:ArmorSetString())
+        resetFn(A)
+        A:Print(kind .. " types back to class default: " .. report(A))
         if A.RefreshOptions then A:RefreshOptions() end
         return
     end
 
-    -- Match the typed atype case-insensitively against what the client uses.
+    -- Match what was typed case-insensitively against what the client uses.
     local target
-    for _, atype in ipairs(A.ARMOR_TYPE_ORDER) do
-        if atype:lower() == rest:lower() then target = atype end
+    for _, t in ipairs(order) do
+        if t:lower() == rest:lower() then target = t end
     end
     if not target then
-        A:Print("unknown armor type: " .. tostring(rest))
-        A:Print("valid: " .. table.concat(A.ARMOR_TYPE_ORDER, ", "))
+        A:Print("unknown " .. kind .. " type: " .. tostring(rest))
+        A:Print("valid: " .. table.concat(order, ", "))
         return
     end
 
     if sub == "add" then
-        A:SetArmorType(target, true)
+        setter(A, target, true)
     elseif sub == "remove" or sub == "rem" then
-        A:SetArmorType(target, false)
+        setter(A, target, false)
     else
-        A:Print("usage: /ar armor add|remove <type>  |  /ar armor auto")
+        A:Print(("usage: /ar %s add|remove <type>  |  /ar %s auto"):format(kind, kind))
         return
     end
 
-    A:Print("now rolling Need on: " .. A:ArmorSetString())
+    A:Print("now rolling Need on: " .. report(A))
     if A.RefreshOptions then A:RefreshOptions() end
 end
 
@@ -656,8 +679,11 @@ SlashCmdList["AUTOROLL"] = function(msg)
     elseif cmd == "probe" then
         A:Probe()
 
-    elseif cmd == "armor" or cmd == "armor" then
-        HandleArmor(sub, tail)
+    elseif cmd == "armor" or cmd == "armour" then
+        HandleTypes("armor", sub, tail)
+
+    elseif cmd == "weapon" or cmd == "weapons" then
+        HandleTypes("weapon", sub, tail)
 
     elseif cmd == "profile" then
         HandleProfile(sub, tail)
@@ -681,6 +707,7 @@ SlashCmdList["AUTOROLL"] = function(msg)
         A:Print("  /ar test <item>         dry run a link, ID or name")
         A:Print("  /ar trace <item>        show every rule's verdict")
         A:Print("  /ar armor               armor types you roll Need on")
+        A:Print("  /ar weapon              weapon types you roll Need on")
         A:Print("  /ar probe               dump server roll data (run during a roll)")
         A:Print("  /ar log                 open the roll history")
         A:Print("  /ar delay <seconds>")

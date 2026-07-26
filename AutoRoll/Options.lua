@@ -210,7 +210,7 @@ function A:BuildOptions()
     ---------------------------------------------------------------- general
     MakeHeader(C, "General", X - 2, y);  y = y - 26
 
-    MakeCheck(C, "Enable automatic rolling", "Turn automatic rolling on or off.",
+    MakeCheck(C, "Enable automatic rolling", "Turn auto rolling on or off.",
         X, y, function() return A.db.enabled end, function(v) A.db.enabled = v end)
     y = y - 26
     MakeCheck(C, "Announce decisions in chat", "Print every roll decision to chat.",
@@ -222,7 +222,7 @@ function A:BuildOptions()
     MakeCheck(C, "Auto-confirm bind-on-pickup", "Accept the 'this will bind to you' popup.",
         X, y, function() return A.db.confirmBoP end, function(v) A.db.confirmBoP = v end)
     y = y - 26
-    MakeCheck(C, "Allow disenchant rolls", "Allow for rolling to disenchant.",
+    MakeCheck(C, "Allow disenchant rolls", "Enable disenchant rolls.",
         X, y, function() return A.db.allowDisenchant end, function(v) A.db.allowDisenchant = v end)
     y = y - 26
     MakeCheck(C, "Debug output", "Verbose logging, including why a rule declined.",
@@ -236,15 +236,17 @@ function A:BuildOptions()
     ------------------------------------------------------------------ armor
     MakeHeader(C, "Armor types", X - 2, y);  y = y - 30
 
-    for _, atype in ipairs(A.ARMOR_TYPE_ORDER) do
+    local ay = y
+    for i, atype in ipairs(A.ARMOR_TYPE_ORDER) do
         local t = atype
+        local col = ((i - 1) % 2 == 0) and X or (X + 190)
         MakeCheck(C, t, "Roll Need on " .. t .. ".",
-            X, y,
+            col, ay,
             function() return A:GetArmorNeedSet()[t] and true or false end,
             function(v) A:SetArmorType(t, v) end)
-        y = y - 24
+        if (i % 2 == 0) or i == #A.ARMOR_TYPE_ORDER then ay = ay - 24 end
     end
-    y = y - 6
+    y = ay - 8
 
     MakeButton(C, "Auto (by class)", 130, X, y, function()
         A:ResetArmorTypes()
@@ -253,12 +255,38 @@ function A:BuildOptions()
     end)
     y = y - 44
 
-    MakeDropdown(C, "Unticked type, BoE", X - 4, y, "wrongArmorBoEAction", ACTION_CHOICES, 100)
-    MakeDropdown(C, "Unticked type, BoP", X + 190, y, "wrongArmorBoPAction", ACTION_CHOICES, 100)
-    y = y - 50
+    MakeDropdown(C, "Unticked armor, BoE", X - 4, y, "wrongArmorBoEAction", ACTION_CHOICES, 100)
+    MakeDropdown(C, "Unticked armor, BoP", X + 190, y, "wrongArmorBoPAction", ACTION_CHOICES, 100)
+    y = y - 52
+
+    ---------------------------------------------------------------- weapons
+    MakeHeader(C, "Weapon types", X - 2, y);  y = y - 30
+
+    local wy = y
+    for i, wtype in ipairs(A.WEAPON_TYPE_ORDER) do
+        local t = wtype
+        local col = ((i - 1) % 2 == 0) and X or (X + 190)
+        MakeCheck(C, t, "Roll Need on " .. t .. ".",
+            col, wy,
+            function() return A:GetWeaponNeedSet()[t] and true or false end,
+            function(v) A:SetWeaponType(t, v) end)
+        if (i % 2 == 0) or i == #A.WEAPON_TYPE_ORDER then wy = wy - 24 end
+    end
+    y = wy - 8
+
+    MakeButton(C, "Auto (by class)", 130, X, y, function()
+        A:ResetWeaponTypes()
+        A:RefreshOptions()
+        A:Print("weapon types back to class default: " .. A:WeaponSetString())
+    end)
+    y = y - 44
+
+    MakeDropdown(C, "Unticked weapon, BoE", X - 4, y, "wrongWeaponBoEAction", ACTION_CHOICES, 100)
+    MakeDropdown(C, "Unticked weapon, BoP", X + 190, y, "wrongWeaponBoPAction", ACTION_CHOICES, 100)
+    y = y - 52
 
     MakeCheck(C, "Require the item be usable",
-        "Never Need gear the tooltip marks in red.",
+        "Second check on top of the type lists: never Need gear the tooltip marks in red.",
         X, y, function() return A.db.requireUsable end, function(v) A.db.requireUsable = v end)
     y = y - 42
 

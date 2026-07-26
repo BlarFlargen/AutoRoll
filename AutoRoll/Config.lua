@@ -53,6 +53,7 @@ A.defaults = {
         alreadyKnown  = true,
         recipe        = true,
         classToken    = true,
+        weaponType    = true,
         armorType     = true,
         usableGear    = true,
         unusable      = true,
@@ -71,9 +72,12 @@ A.defaults = {
     -- a BoE is worth money and a BoP is worth nothing to you.
     wrongArmorBoEAction = "GREED",
     wrongArmorBoPAction = "PASS",
+    wrongWeaponBoEAction = "GREED",
+    wrongWeaponBoPAction = "PASS",
 
-    -- db.armorNeed is deliberately absent here. Absent means "work it out from
-    -- class and level"; the options panel writes a real table if you override.
+    -- db.armorNeed and db.weaponNeed are deliberately absent here. Absent means
+    -- "work it out from class and level"; the options panel writes a real table
+    -- if you override.
 
     -- How many times to wait 0.3s for GetItemInfo to populate before giving up.
     itemInfoRetries   = 12,
@@ -150,7 +154,7 @@ end
 -- would otherwise sit in the saved variables forever, doing nothing.
 --=========================================================================
 
-A.DB_VERSION = 2
+A.DB_VERSION = 3
 
 local function Migrate(profile)
     local from = profile.__version or 1
@@ -169,6 +173,23 @@ local function Migrate(profile)
             -- Shipped disabled in v1; now on by default.
             profile.rules.tooHighLevel = true
         end
+    end
+
+    if from < 3 then
+        -- Shields and relics became tickable armor types, and weapons gained a
+        -- type list of their own. A player who had already customised their
+        -- armor set has no entry for the new types, and absent means unticked
+        -- -- so top those up from the class default rather than silently
+        -- passing on every shield.
+        if profile.armorNeed and A.GetArmorDefaultSet then
+            for atype, wanted in pairs(A:GetArmorDefaultSet()) do
+                if A.ARMOR_TYPES_ADDED_V3 and A.ARMOR_TYPES_ADDED_V3[atype]
+                   and profile.armorNeed[atype] == nil then
+                    profile.armorNeed[atype] = wanted
+                end
+            end
+        end
+        if profile.rules then profile.rules.weaponType = true end
     end
 
     profile.__version = A.DB_VERSION
