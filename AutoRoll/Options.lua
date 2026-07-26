@@ -13,7 +13,7 @@
 
 local A = AutoRoll
 
-local refreshers = {}   -- functions that pull widget state back from the db
+local refreshers = {}
 local uid = 0
 local function NextName(prefix)
     uid = uid + 1
