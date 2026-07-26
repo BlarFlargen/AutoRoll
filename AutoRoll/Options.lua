@@ -210,7 +210,7 @@ function A:BuildOptions()
     ---------------------------------------------------------------- general
     MakeHeader(C, "General", X - 2, y);  y = y - 26
 
-    MakeCheck(C, "Enable automatic rolling", "Master switch. Off leaves every roll for you.",
+    MakeCheck(C, "Enable automatic rolling", "Turn automatic rolling on or off.",
         X, y, function() return A.db.enabled end, function(v) A.db.enabled = v end)
     y = y - 26
     MakeCheck(C, "Announce decisions in chat", "Print every roll decision to chat.",
@@ -219,10 +219,10 @@ function A:BuildOptions()
     MakeCheck(C, "Only roll inside instances", "Ignore loot rolls out in the world.",
         X, y, function() return A.db.onlyInInstance end, function(v) A.db.onlyInInstance = v end)
     y = y - 26
-    MakeCheck(C, "Auto-confirm bind-on-pickup", "Accept the 'this will bind to you' popup. Without this, need and greed rolls on BoP items never go through.",
+    MakeCheck(C, "Auto-confirm bind-on-pickup", "Accept the 'this will bind to you' popup.",
         X, y, function() return A.db.confirmBoP end, function(v) A.db.confirmBoP = v end)
     y = y - 26
-    MakeCheck(C, "Allow disenchant rolls", "Roll action 3, which does not exist on a Blizzlike 3.3.5a core. Check /ar probe before enabling.",
+    MakeCheck(C, "Allow disenchant rolls", "Allow for rolling to disenchant.",
         X, y, function() return A.db.allowDisenchant end, function(v) A.db.allowDisenchant = v end)
     y = y - 26
     MakeCheck(C, "Debug output", "Verbose logging, including why a rule declined.",
@@ -238,7 +238,7 @@ function A:BuildOptions()
 
     for _, atype in ipairs(A.ARMOR_TYPE_ORDER) do
         local t = atype
-        MakeCheck(C, t, "Roll Need on " .. t .. ". Unticked types fall to the actions below.",
+        MakeCheck(C, t, "Roll Need on " .. t .. ".",
             X, y,
             function() return A:GetArmorNeedSet()[t] and true or false end,
             function(v) A:SetArmorType(t, v) end)
@@ -258,14 +258,14 @@ function A:BuildOptions()
     y = y - 50
 
     MakeCheck(C, "Require the item be usable",
-        "Never Need gear the tooltip marks in red. If your server colours its own requirement lines red, this will reject gear you can actually wear -- /ar trace will show you.",
+        "Never Need gear the tooltip marks in red.",
         X, y, function() return A.db.requireUsable end, function(v) A.db.requireUsable = v end)
     y = y - 42
 
     ----------------------------------------------------------------- timing
     MakeHeader(C, "Timing", X - 2, y);  y = y - 40
 
-    MakeSlider(C, "Roll delay", "How long to wait before rolling. Zero is an obvious bot signature and some servers reject rolls that arrive too early.",
+    MakeSlider(C, "Roll delay", "How long to wait before rolling.",
         X, y, 0, 10, 0.5,
         function() return A.db.rollDelay end,
         function(v) A.db.rollDelay = v end,
