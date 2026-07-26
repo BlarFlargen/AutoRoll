@@ -1,0 +1,14 @@
+## Interface: 30300
+## Title: AutoRoll
+## Notes: Automatic group loot rolling. Priority rule engine, per-character profiles, roll history.
+## Author: BlarFlargen (AI)
+## Version: 1.0
+## SavedVariables: AutoRollDB
+## SavedVariablesPerCharacter: AutoRollCharDB
+
+Config.lua
+Rules.lua
+Core.lua
+History.lua
+Options.lua
+ServerRules.lua
