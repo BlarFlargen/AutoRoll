@@ -356,7 +356,7 @@ end)
 A:RegisterRule{
     key      = "soulbind",
     label    = "Soulbind eligibility",
-    priority = 84,          -- ahead of duplicates (87) and the type rules
+    priority = 84,          -- ahead of the gear rule (89)
     fn = function(self, ctx)
         if not HasSoulbindAPI() then return end
         if ctx.itemClass ~= self.LC.ARMOR and ctx.itemClass ~= self.LC.WEAPON then

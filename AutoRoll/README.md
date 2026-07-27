@@ -37,7 +37,6 @@ sensible out of the box, but two things are worth doing before a raid:
 | `/ar class add\|remove\|only <class>` | change the selection |
 | `/ar class auto` | back to just your own class |
 | `/ar misc` | extra armor types, all weapons, offhands, level override |
-| `/ar dupe need\|greed\|pass\|ignore` | what to do with items you already own |
 | `/ar log` | roll history window |
 | `/ar delay <seconds>` | how long to wait before rolling |
 | `/ar need\|greed\|pass\|black add\|remove\|list <item>` | explicit item lists |
@@ -61,9 +60,7 @@ Rules run by priority; the first match wins.
  80 classToken       tier tokens for your class
  84 soulbind         server soulbind mechanic (inert unless configured)
  86 tooHighLevel     requires a level above yours
- 87 duplicate        items you already own
- 89 gearType         gear any selected class can use
-100 unusable         client-enforced: weapon skill, level, profession
+ 89 gearType         gear any selected class can use (exhaustive)
 110 lockbox
 120 tradeGoods       mats, consumables, gems, glyphs
 130 boe              anything sellable
@@ -85,10 +82,22 @@ Treating Plate as "the warrior type" with Mail as a fallback makes a low-level
 warrior roll on armor it cannot wear while skipping the armor it can. So
 `CLASS_GEAR` in `Rules.lua` records the level each type is learned at, and the
 derivation picks the highest one you actually qualify for. **Ignore level
-requirements** under Misc overrides this when collecting for an alt.
+requirements** under Misc overrides this, and is on by default.
 
-**Misc** adds extras on top: individual armor types, every weapon type,
-offhands and shields.
+**Misc** adds individual types on top of the class selection — each armor type,
+each of the fifteen weapon types, and each offhand category (shields,
+held-in-off-hand, and the four relic types). Held-in-off-hand has no subclass
+of its own, so it is matched by equip slot instead.
+
+**Ignore level requirements is on by default.** The level-gated armor type is
+only the right answer while you are actually levelling that character; turn it
+off if you want a level-30 paladin to roll mail rather than plate.
+
+**The gear rule is exhaustive.** Every armor and weapon item leaves rule 89
+with a decision — including ones that are unusable, an unselected type, or not
+really gear at all like fishing poles. The rules below it know nothing about
+whether you can equip something, so a case that fell through would be handed to
+a rule that might Need it.
 
 ## Design notes
 
@@ -158,4 +167,4 @@ Context fields: `rollID`, `link`, `itemID`, `name`, `quality`, `iLevel`,
 
 Helpers on `self`: `IsUnusable`, `IsAlreadyKnown`, `IsClassToken`, `IsLockbox`,
 `IsOffhandItem`, `GetNeedSets`, `GetNeedClasses`, `GetUpgradeDelta`,
-`CountInBags`, `AlreadyOwn`, `ListContains`, `ScanTooltip`, `Debug`.
+`CountInBags`, `ListContains`, `ScanTooltip`, `Debug`.

@@ -390,10 +390,6 @@ function A:TraceItem(input)
         A:Print("  " .. A:GearSetString())
     end
 
-    local own, ownWhy = A:AlreadyOwn(itemID)
-    A:Print(("  already own=%s%s"):format(
-        own and "|cffff8800yes|r" or "|cff1eff00no|r",
-        own and ("  " .. tostring(ownWhy)) or ""))
 
     local delta, equipped = A:GetUpgradeDelta(link)
     if delta then
@@ -563,16 +559,14 @@ function A:ClassSetString()
 end
 
 function A:GearSetString()
-    local armor, weapons, relics, offhand = A:GetNeedSets()
-    local a, w, r = {}, 0, {}
-    for _, t in ipairs(A.ARMOR_TYPE_ORDER) do if armor[t] then table.insert(a, t) end end
-    for _, t in ipairs(A.WEAPON_TYPE_ORDER) do if weapons[t] then w = w + 1 end end
-    for _, t in ipairs(A.RELIC_TYPE_ORDER) do if relics[t] then table.insert(r, t) end end
-    return ("armor: %s | weapons: %d types | relics: %s | offhand: %s")
-        :format(#a > 0 and table.concat(a, ", ") or "none",
-                w,
-                #r > 0 and table.concat(r, ", ") or "none",
-                offhand and "yes" or "no")
+    local armor, weapons, offhand = A:GetNeedSets()
+    local a, w, o = {}, 0, {}
+    for _, t in ipairs(A.ARMOR_TYPE_ORDER)   do if armor[t]   then table.insert(a, t) end end
+    for _, t in ipairs(A.WEAPON_TYPE_ORDER)  do if weapons[t] then w = w + 1 end end
+    for _, t in ipairs(A.OFFHAND_TYPE_ORDER) do if offhand[t] then table.insert(o, t) end end
+    return ("armor: %s | weapons: %d types | offhand: %s")
+        :format(#a > 0 and table.concat(a, ", ") or "none", w,
+                #o > 0 and table.concat(o, ", ") or "none")
 end
 
 --- /ar class [add|remove|only <class>] [auto]
@@ -621,55 +615,58 @@ local function HandleClass(sub, rest)
     if A.RefreshOptions then A:RefreshOptions() end
 end
 
---- /ar misc armor <type> | weapons | offhand | level
+--- /ar misc [<type>] [level]
+--  Types are matched against all three lists, so you can just name one.
 local function HandleMisc(sub, rest)
-    sub = sub:lower()
+    local arg = ((sub or "") .. " " .. (rest or "")):gsub("^%s+", ""):gsub("%s+$", "")
 
-    if sub == "" or sub == "list" then
-        local extra = {}
-        for t, on in pairs(A.db.miscArmor or {}) do
-            if on then table.insert(extra, t) end
+    if arg == "" or arg:lower() == "list" then
+        local function Listing(tbl, order)
+            local on = {}
+            for _, t in ipairs(order) do if (tbl or {})[t] then table.insert(on, t) end end
+            return #on > 0 and table.concat(on, ", ") or "none"
         end
-        table.sort(extra)
-        A:Print("misc opt-ins:")
-        A:Print("  extra armor: " .. (#extra > 0 and table.concat(extra, ", ") or "none"))
-        A:Print("  all weapons: " .. (A.db.miscWeapons and "yes" or "no"))
-        A:Print("  offhands:    " .. (A.db.miscOffhand and "yes" or "no"))
-        A:Print("  ignore level:" .. (A.db.ignoreLevel and " yes" or " no"))
-        A:Print("usage: /ar misc armor <type> | weapons | offhand | level")
+        A:Print("misc opt-ins, on top of your class selection:")
+        A:Print("  armor:   " .. Listing(A.db.miscArmor,   A.ARMOR_TYPE_ORDER))
+        A:Print("  weapons: " .. Listing(A.db.miscWeapons, A.WEAPON_TYPE_ORDER))
+        A:Print("  offhand: " .. Listing(A.db.miscOffhand, A.OFFHAND_TYPE_ORDER))
+        A:Print("  ignore level: " .. (A.db.ignoreLevel and "yes" or "no"))
+        A:Print("usage: /ar misc <type>   toggles it. /ar misc level")
         return
     end
 
-    if sub == "weapons" then
-        A.db.miscWeapons = not A.db.miscWeapons
-        A:Print("roll all weapon types: " .. (A.db.miscWeapons and "yes" or "no"))
-    elseif sub == "offhand" then
-        A.db.miscOffhand = not A.db.miscOffhand
-        A:Print("roll offhands and shields: " .. (A.db.miscOffhand and "yes" or "no"))
-    elseif sub == "level" then
+    if arg:lower() == "level" then
         A.db.ignoreLevel = not A.db.ignoreLevel
         A:Print("ignore level requirements: " .. (A.db.ignoreLevel and "yes" or "no"))
-    elseif sub == "armor" then
-        local target
-        for _, t in ipairs(A.ARMOR_TYPE_ORDER) do
-            if t:lower() == rest:lower() then target = t end
-        end
-        if not target then
-            A:Print("unknown armor type: " .. tostring(rest))
-            A:Print("valid: " .. table.concat(A.ARMOR_TYPE_ORDER, ", "))
-            return
-        end
-        A.db.miscArmor = A.db.miscArmor or {}
-        local now = not A.db.miscArmor[target]
-        A:SetMiscArmor(target, now)
-        A:Print(("extra armor %s: %s"):format(target, now and "yes" or "no"))
-    else
-        A:Print("usage: /ar misc armor <type> | weapons | offhand | level")
+        A:Print("  " .. A:GearSetString())
+        if A.RefreshOptions then A:RefreshOptions() end
         return
     end
 
-    A:Print("  " .. A:GearSetString())
-    if A.RefreshOptions then A:RefreshOptions() end
+    -- Match the typed name against every list, so the user does not have to
+    -- remember which category a type belongs to.
+    local lists = {
+        { A.ARMOR_TYPE_ORDER,   "miscArmor",   A.SetMiscArmor   },
+        { A.WEAPON_TYPE_ORDER,  "miscWeapons", A.SetMiscWeapon  },
+        { A.OFFHAND_TYPE_ORDER, "miscOffhand", A.SetMiscOffhand },
+    }
+    for _, entry in ipairs(lists) do
+        for _, t in ipairs(entry[1]) do
+            if t:lower() == arg:lower() then
+                local now = not ((A.db[entry[2]] or {})[t])
+                entry[3](A, t, now)
+                A:Print(("%s: %s"):format(t, now and "|cff1eff00on|r" or "|cff808080off|r"))
+                A:Print("  " .. A:GearSetString())
+                if A.RefreshOptions then A:RefreshOptions() end
+                return
+            end
+        end
+    end
+
+    A:Print("unknown type: " .. arg)
+    A:Print("armor:   " .. table.concat(A.ARMOR_TYPE_ORDER, ", "))
+    A:Print("weapons: " .. table.concat(A.WEAPON_TYPE_ORDER, ", "))
+    A:Print("offhand: " .. table.concat(A.OFFHAND_TYPE_ORDER, ", "))
 end
 
 --=========================================================================
@@ -801,24 +798,6 @@ SlashCmdList["AUTOROLL"] = function(msg)
     elseif cmd == "misc" then
         HandleMisc(sub, tail)
 
-    elseif cmd == "dupe" or cmd == "duplicate" then
-        local want = rest:upper()
-        if want == "NEED" or want == "GREED" or want == "PASS" or want == "IGNORE" then
-            A.db.duplicateAction = want
-            A:Print("items you already own: |cffffffff" .. want .. "|r")
-            if A.RefreshOptions then A:RefreshOptions() end
-        elseif want == "EQUIPPED" then
-            A.db.duplicateIncludeEquipped = not A.db.duplicateIncludeEquipped
-            A:Print("count equipped items as owned: " ..
-                (A.db.duplicateIncludeEquipped and "yes" or "no"))
-            if A.RefreshOptions then A:RefreshOptions() end
-        else
-            A:Print("usage: /ar dupe need|greed|pass|ignore  |  /ar dupe equipped")
-            A:Print(("currently %s, equipped counted: %s"):format(
-                A.db.duplicateAction,
-                A.db.duplicateIncludeEquipped and "yes" or "no"))
-        end
-
     elseif cmd == "profile" then
         HandleProfile(sub, tail)
 
@@ -829,7 +808,7 @@ SlashCmdList["AUTOROLL"] = function(msg)
         A:Print(("enabled=%s delay=%.1fs profile=%s rules=%d")
             :format(tostring(A.db.enabled), A.db.rollDelay, A.profileName, #A.ruleList))
         for _, rule in ipairs(A.ruleList) do
-            A:Print(("  [%3d] %-14s %s"):format(rule.priority, rule.key,
+            A:Print(("  %-16s %s"):format(rule.key,
                 A.db.rules[rule.key] ~= false and "|cff1eff00on|r" or "|cffff4444off|r"))
         end
 
@@ -842,7 +821,6 @@ SlashCmdList["AUTOROLL"] = function(msg)
         A:Print("  /ar trace <item>        show every rule's verdict")
         A:Print("  /ar class               classes you roll gear for")
         A:Print("  /ar misc                extra armor, weapons, offhands")
-        A:Print("  /ar dupe <action>       what to do with items you already own")
         A:Print("  /ar probe               dump server roll data (run during a roll)")
         A:Print("  /ar log                 open the roll history")
         A:Print("  /ar delay <seconds>")

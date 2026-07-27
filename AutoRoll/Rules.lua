@@ -221,17 +221,27 @@ end
 A.LA, A.LW = LA, LW
 
 A.ARMOR_TYPE_ORDER  = { LA.CLOTH, LA.LEATHER, LA.MAIL, LA.PLATE }
-A.RELIC_TYPE_ORDER  = { LA.LIBRAM, LA.IDOL, LA.TOTEM, LA.SIGIL }
+
+-- Held-in-off-hand items have no subclass of their own -- they are
+-- Miscellaneous armor identified by equip slot -- so the client's label for
+-- that slot stands in as the category name.
+LA.HELD = INVTYPE_HOLDABLE or "Held In Off-hand"
+
+-- Shields, relics and held items all compete for the same hand, so they are
+-- one list rather than three.
+A.OFFHAND_TYPE_ORDER = {
+    LA.SHIELD, LA.HELD, LA.LIBRAM, LA.IDOL, LA.TOTEM, LA.SIGIL,
+}
 A.WEAPON_TYPE_ORDER = {
     LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2,
     LW.DAGGER, LW.FIST, LW.POLE, LW.STAFF,
     LW.BOW, LW.XBOW, LW.GUN, LW.THROWN, LW.WAND,
 }
 
-A.ARMOR_TYPES, A.WEAPON_TYPES, A.RELIC_TYPES = {}, {}, {}
-for _, t in ipairs(A.ARMOR_TYPE_ORDER)  do A.ARMOR_TYPES[t]  = true end
-for _, t in ipairs(A.WEAPON_TYPE_ORDER) do A.WEAPON_TYPES[t] = true end
-for _, t in ipairs(A.RELIC_TYPE_ORDER)  do A.RELIC_TYPES[t]  = true end
+A.ARMOR_TYPES, A.WEAPON_TYPES, A.OFFHAND_TYPES = {}, {}, {}
+for _, t in ipairs(A.ARMOR_TYPE_ORDER)   do A.ARMOR_TYPES[t]   = true end
+for _, t in ipairs(A.WEAPON_TYPE_ORDER)  do A.WEAPON_TYPES[t]  = true end
+for _, t in ipairs(A.OFFHAND_TYPE_ORDER) do A.OFFHAND_TYPES[t] = true end
 
 A.CLASS_ORDER = {
     "WARRIOR", "PALADIN", "DEATHKNIGHT", "HUNTER", "SHAMAN",
@@ -247,52 +257,55 @@ A.CLASS_LABEL = {
 -- armor: { { level = N, type = T }, ... }, highest qualifying level wins.
 local CLASS_GEAR = {
     WARRIOR = {
-        armor  = { { level = 40, type = LA.PLATE }, { level = 1, type = LA.MAIL } },
-        shield = true,
+        armor   = { { level = 40, type = LA.PLATE }, { level = 1, type = LA.MAIL } },
+        offhand = { LA.SHIELD },
         weapons = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2,
                     LW.DAGGER, LW.FIST, LW.POLE, LW.STAFF,
                     LW.BOW, LW.XBOW, LW.GUN, LW.THROWN },
     },
     PALADIN = {
-        armor  = { { level = 40, type = LA.PLATE }, { level = 1, type = LA.MAIL } },
-        shield = true, relics = { LA.LIBRAM },
+        armor   = { { level = 40, type = LA.PLATE }, { level = 1, type = LA.MAIL } },
+        offhand = { LA.SHIELD, LA.LIBRAM, LA.HELD },
         weapons = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2, LW.POLE },
     },
     DEATHKNIGHT = {
-        armor  = { { level = 1, type = LA.PLATE } },
-        relics = { LA.SIGIL },
+        armor   = { { level = 1, type = LA.PLATE } },
+        offhand = { LA.SIGIL },
         weapons = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.SWORD1, LW.SWORD2, LW.POLE },
     },
     HUNTER = {
-        armor  = { { level = 40, type = LA.MAIL }, { level = 1, type = LA.LEATHER } },
+        armor   = { { level = 40, type = LA.MAIL }, { level = 1, type = LA.LEATHER } },
         weapons = { LW.AXE1, LW.AXE2, LW.SWORD1, LW.SWORD2, LW.POLE, LW.STAFF,
                     LW.DAGGER, LW.FIST, LW.BOW, LW.XBOW, LW.GUN, LW.THROWN },
     },
     SHAMAN = {
-        armor  = { { level = 40, type = LA.MAIL }, { level = 1, type = LA.LEATHER } },
-        shield = true, relics = { LA.TOTEM },
+        armor   = { { level = 40, type = LA.MAIL }, { level = 1, type = LA.LEATHER } },
+        offhand = { LA.SHIELD, LA.TOTEM, LA.HELD },
         weapons = { LW.AXE1, LW.AXE2, LW.MACE1, LW.MACE2, LW.STAFF, LW.FIST, LW.DAGGER },
     },
     ROGUE = {
-        armor  = { { level = 1, type = LA.LEATHER } },
+        armor   = { { level = 1, type = LA.LEATHER } },
         weapons = { LW.AXE1, LW.MACE1, LW.SWORD1, LW.DAGGER, LW.FIST,
                     LW.BOW, LW.XBOW, LW.GUN, LW.THROWN },
     },
     DRUID = {
-        armor  = { { level = 1, type = LA.LEATHER } },
-        relics = { LA.IDOL },
+        armor   = { { level = 1, type = LA.LEATHER } },
+        offhand = { LA.IDOL, LA.HELD },
         weapons = { LW.MACE1, LW.MACE2, LW.POLE, LW.STAFF, LW.FIST, LW.DAGGER },
     },
     PRIEST = {
-        armor  = { { level = 1, type = LA.CLOTH } },
+        armor   = { { level = 1, type = LA.CLOTH } },
+        offhand = { LA.HELD },
         weapons = { LW.MACE1, LW.STAFF, LW.DAGGER, LW.WAND },
     },
     MAGE = {
-        armor  = { { level = 1, type = LA.CLOTH } },
+        armor   = { { level = 1, type = LA.CLOTH } },
+        offhand = { LA.HELD },
         weapons = { LW.SWORD1, LW.STAFF, LW.DAGGER, LW.WAND },
     },
     WARLOCK = {
-        armor  = { { level = 1, type = LA.CLOTH } },
+        armor   = { { level = 1, type = LA.CLOTH } },
+        offhand = { LA.HELD },
         weapons = { LW.SWORD1, LW.STAFF, LW.DAGGER, LW.WAND },
     },
 }
@@ -318,11 +331,12 @@ function A:ArmorTypeForClass(token, level)
     return best
 end
 
---- Which classes we are rolling for. Absent means "just mine".
+--- Which classes we are rolling for. A nil table means "never configured, use
+--  my own class". An empty table means "explicitly none" and is preserved --
+--  collapsing empty back to nil would make unticking your last class in the
+--  options panel appear to do nothing.
 function A:GetNeedClasses()
-    if A.db and A.db.needClasses and next(A.db.needClasses) then
-        return A.db.needClasses
-    end
+    if A.db and A.db.needClasses then return A.db.needClasses end
     local mine = PlayerClass()
     return CLASS_GEAR[mine] and { [mine] = true } or {}
 end
@@ -334,16 +348,14 @@ function A:SetNeedClass(token, wanted)
         A.db.needClasses = copy
     end
     A.db.needClasses[token] = wanted or nil
-    if not next(A.db.needClasses) then A.db.needClasses = nil end
 end
 
 function A:ResetNeedClasses() A.db.needClasses = nil end
 
 --- Everything the selected classes can use, plus the misc opt-ins.
---  Returns armorSet, weaponSet, relicSet, offhandWanted.
+--  Returns armorSet, weaponSet, offhandSet -- each keyed by type name.
 function A:GetNeedSets()
-    local armor, weapons, relics = {}, {}, {}
-    local offhand = false
+    local armor, weapons, offhand = {}, {}, {}
 
     local level = A.db.ignoreLevel and 80 or (UnitLevel("player") or 80)
 
@@ -353,36 +365,41 @@ function A:GetNeedSets()
             local atype = A:ArmorTypeForClass(token, level)
             if atype then armor[atype] = true end
             for _, w in ipairs(def.weapons or {}) do weapons[w] = true end
-            for _, r in ipairs(def.relics  or {}) do relics[r]  = true end
-            if def.shield then offhand = true end
+            for _, o in ipairs(def.offhand or {}) do offhand[o] = true end
         end
     end
 
-    -- Misc opt-ins sit on top of whatever the classes gave us.
-    for atype, on in pairs(A.db.miscArmor or {}) do
-        if on then armor[atype] = true end
+    -- Misc opt-ins sit on top of whatever the classes gave us. Each is an
+    -- explicit per-type table rather than an all-or-nothing switch, so you can
+    -- add a single weapon type without taking all fifteen.
+    for atype, on in pairs(A.db.miscArmor   or {}) do if on then armor[atype]   = true end end
+    for wtype, on in pairs(A.db.miscWeapons or {}) do if on then weapons[wtype] = true end end
+    for otype, on in pairs(A.db.miscOffhand or {}) do if on then offhand[otype] = true end end
+
+    return armor, weapons, offhand
+end
+
+local function SetMisc(key, name, wanted)
+    A.db[key] = A.db[key] or {}
+    A.db[key][name] = wanted or nil
+end
+
+function A:SetMiscArmor(atype, wanted)   SetMisc("miscArmor",   atype, wanted) end
+function A:SetMiscWeapon(wtype, wanted)  SetMisc("miscWeapons", wtype, wanted) end
+function A:SetMiscOffhand(otype, wanted) SetMisc("miscOffhand", otype, wanted) end
+
+--- Which offhand category an item belongs to, or nil.
+--  Shields and relics have a subclass of their own; held-in-off-hand does not
+--  and is identified by equip slot instead.
+function A:OffhandCategory(ctx)
+    if ctx.itemSubClass and A.OFFHAND_TYPES[ctx.itemSubClass] then
+        return ctx.itemSubClass
     end
-    if A.db.miscWeapons then
-        for _, w in ipairs(A.WEAPON_TYPE_ORDER) do weapons[w] = true end
-    end
-    if A.db.miscOffhand then offhand = true end
-
-    return armor, weapons, relics, offhand
+    if ctx.equipSlot == "INVTYPE_HOLDABLE" then return LA.HELD end
+    return nil
 end
 
-function A:SetMiscArmor(atype, wanted)
-    A.db.miscArmor = A.db.miscArmor or {}
-    A.db.miscArmor[atype] = wanted or nil
-end
-
---- Shields and held-in-off-hand items. Shields are an armor subclass;
---  held-in-off-hand is a Miscellaneous armor item identified by equip slot.
-function A:IsOffhandItem(ctx)
-    if ctx.itemSubClass == LA.SHIELD then return true end
-    if ctx.equipSlot == "INVTYPE_HOLDABLE" then return true end
-    return false
-end
-
+--=========================================================================
 -- Item level comparison
 --=========================================================================
 
@@ -448,31 +465,6 @@ function A:CountInBags(itemID)
         end
     end
     return count
-end
-
---- Bags do not include what you are wearing, so this is a separate question.
-function A:IsEquipped(itemID)
-    for slotID = 1, 19 do
-        local link = GetInventoryItemLink("player", slotID)
-        if link and tonumber(link:match("item:(%d+)")) == itemID then
-            return true, slotID
-        end
-    end
-    return false
-end
-
---- True when you already own a copy, honouring the include-equipped setting.
---  Returns the reason text as a second value so rules and /ar trace agree.
-function A:AlreadyOwn(itemID)
-    local inBags = A:CountInBags(itemID)
-    if inBags > 0 then
-        return true, (inBags == 1) and "1 already in your bags"
-                                    or (inBags .. " already in your bags")
-    end
-    if A.db and A.db.duplicateIncludeEquipped and A:IsEquipped(itemID) then
-        return true, "one already equipped"
-    end
-    return false
 end
 
 --=========================================================================
@@ -620,89 +612,63 @@ A:RegisterRule{
     end,
 }
 
--- 87 -- Items you already own.
---
---       Sits ahead of the type rules at 88/89 so a second copy of something is
---       judged on the fact that you already have one, rather than on what it
---       is. Still behind the explicit lists, so /ar need add always wins.
-A:RegisterRule{
-    key = "duplicate", label = "Already have one", priority = 87,
-    fn = function(self, ctx)
-        local own, why = self:AlreadyOwn(ctx.itemID)
-        if not own then return end
-        return NamedAction(self.db.duplicateAction), why
-    end,
-}
-
 -- 89 -- Gear, judged against the classes you selected.
 --
---       One rule for armor, weapons, relics and offhands: they all reduce to
---       "does any class I roll for use this". Ahead of the BoE rule at 130, so
---       a bind-on-equip drop is judged by what it is rather than as loot.
+--       This rule is EXHAUSTIVE for armor and weapons: every such item leaves
+--       here with a decision. That matters because the rules below it -- BoE,
+--       trade goods, the fallback -- know nothing about whether you can equip
+--       something. Letting a case fall through would hand an unusable drop to
+--       a rule that might Need it.
 A:RegisterRule{
     key = "gearType", label = "Gear for my classes", priority = 89,
     fn = function(self, ctx)
         if ctx.itemClass ~= LC.ARMOR and ctx.itemClass ~= LC.WEAPON then return end
 
-        local armorSet, weaponSet, relicSet, offhandWanted = self:GetNeedSets()
+        local armorSet, weaponSet, offhandSet = self:GetNeedSets()
+
+        local function NotWanted(why)
+            local action = ctx.bindOnPickUp and self.db.wrongGearBoPAction
+                                            or  self.db.wrongGearBoEAction
+            return NamedAction(action), why
+        end
 
         local wanted, what
+        local offhandType = self:OffhandCategory(ctx)
+
         if ctx.itemClass == LC.WEAPON then
             if not ctx.itemSubClass or not A.WEAPON_TYPES[ctx.itemSubClass] then
-                return                              -- fishing pole, misc: not gear
+                -- Fishing poles and the Miscellaneous weapon subclass. Not
+                -- gear anyone rolls for, but still ours to decide.
+                return NotWanted("not a gear weapon type")
             end
             wanted, what = weaponSet[ctx.itemSubClass], ctx.itemSubClass
 
-        elseif self:IsOffhandItem(ctx) then
-            wanted, what = offhandWanted, "offhand"
-
-        elseif A.RELIC_TYPES[ctx.itemSubClass or ""] then
-            wanted, what = relicSet[ctx.itemSubClass], ctx.itemSubClass
+        elseif offhandType then
+            wanted, what = offhandSet[offhandType], offhandType
 
         elseif A.ARMOR_TYPES[ctx.itemSubClass or ""] then
             wanted, what = armorSet[ctx.itemSubClass], ctx.itemSubClass
 
         else
             -- Cloaks, rings, necks, trinkets: no type, everyone can wear them.
-            if self.db.requireUsable then
-                local unusable, why = self:IsUnusable(ctx.link)
-                if unusable then
-                    self:Debug("gear declined: " .. tostring(why))
-                    return
-                end
+            wanted, what = true, "usable gear"
+        end
+
+        if not wanted then
+            return NotWanted(("%s not selected"):format(what))
+        end
+
+        -- Needing gear you cannot equip is never right. Reads red tooltip
+        -- text; a server that colours its own requirement lines red will trip
+        -- this, and /ar trace reports which line did it.
+        if self.db.requireUsable then
+            local unusable, why = self:IsUnusable(ctx.link)
+            if unusable then
+                return NotWanted("unusable: " .. tostring(why))
             end
-            return ACT.NEED, "usable gear"
         end
 
-        if wanted then
-            -- Needing gear you cannot equip is never right. Reads red tooltip
-            -- text; a server that colours its own requirement lines red will
-            -- trip this, so /ar trace reports which line did it.
-            if self.db.requireUsable then
-                local unusable, why = self:IsUnusable(ctx.link)
-                if unusable then
-                    self:Debug("gear selected but unusable: " .. tostring(why))
-                    return
-                end
-            end
-            return ACT.NEED, ("gear: %s"):format(what)
-        end
-
-        local action = ctx.bindOnPickUp and self.db.wrongGearBoPAction
-                                        or  self.db.wrongGearBoEAction
-        return NamedAction(action), ("%s not selected"):format(what)
-    end,
-}
-
--- 100 -- Gear you cannot wear. Greed it for the vendor value / shards.
-A:RegisterRule{
-    key = "unusable", label = "Unusable gear", priority = 100,
-    fn = function(self, ctx)
-        if ctx.itemClass ~= LC.ARMOR and ctx.itemClass ~= LC.WEAPON then return end
-        local unusable, why = self:IsUnusable(ctx.link)
-        if unusable then
-            return NamedAction(self.db.unusableAction), "unusable (" .. tostring(why) .. ")"
-        end
+        return ACT.NEED, ("gear: %s"):format(what)
     end,
 }
 

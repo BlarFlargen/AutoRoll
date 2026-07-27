@@ -135,6 +135,15 @@ local function MakeButton(parent, label, width, x, y, onClick)
     return b
 end
 
+local function MakeNote(parent, text, x, y)
+    local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    fs:SetPoint("TOPLEFT", x, y)
+    fs:SetWidth(CONTENT_WIDTH - 40)
+    fs:SetJustifyH("LEFT")
+    fs:SetText(text)
+    return fs
+end
+
 local function MakeHeader(parent, label, x, y)
     local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
     fs:SetPoint("TOPLEFT", x, y)
@@ -233,20 +242,6 @@ function A:BuildOptions()
         "manualQualityMin", QualityChoices(), 130)
     y = y - 50
 
-    ------------------------------------------------------------- duplicates
-    MakeHeader(C, "Items you already own", X - 2, y);  y = y - 40
-
-    MakeDropdown(C, "Already in your bags", X - 4, y, "duplicateAction",
-        ACTION_CHOICES, 110)
-    y = y - 46
-
-    MakeCheck(C, "Also count what you have equipped",
-        "By default only your bags are checked. Tick this to treat an item you are already wearing as one you own.",
-        X, y,
-        function() return A.db.duplicateIncludeEquipped end,
-        function(v) A.db.duplicateIncludeEquipped = v end)
-    y = y - 42
-
     ---------------------------------------------------------------- classes
     MakeHeader(C, "Roll gear for these classes", X - 2, y);  y = y - 28
 
@@ -283,44 +278,45 @@ function A:BuildOptions()
     y = y - 52
 
     ------------------------------------------------------------------- misc
-    MakeHeader(C, "Misc", X - 2, y);  y = y - 28
+    MakeHeader(C, "Armor types", X - 2, y);  y = y - 26
 
-    local mnote = C:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    mnote:SetPoint("TOPLEFT", X, y)
-    mnote:SetWidth(CONTENT_WIDTH - 40)
-    mnote:SetJustifyH("LEFT")
-    mnote:SetText("Extras on top of the classes above.")
-    y = y - 24
+    MakeNote(C, "Extras on top of the classes above.", X, y);  y = y - 22
 
-    local my = y
-    for i, atype in ipairs(A.ARMOR_TYPE_ORDER) do
-        local t = atype
-        local col = ((i - 1) % 2 == 0) and X or (X + 190)
-        MakeCheck(C, "Also roll " .. t,
-            "Roll on " .. t .. " even when no selected class wears it.",
-            col, my,
-            function() return A.db.miscArmor and A.db.miscArmor[t] and true or false end,
-            function(v) A:SetMiscArmor(t, v) end)
-        if (i % 2 == 0) or i == #A.ARMOR_TYPE_ORDER then my = my - 24 end
+    local function Grid(list, isOn, setFn, tipPrefix)
+        local gy = y
+        for i, name in ipairs(list) do
+            local t = name
+            local col = ((i - 1) % 2 == 0) and X or (X + 190)
+            MakeCheck(C, t, tipPrefix .. t .. ".",
+                col, gy,
+                function() return isOn(t) end,
+                function(v) setFn(t, v) end)
+            if (i % 2 == 0) or i == #list then gy = gy - 24 end
+        end
+        y = gy - 6
     end
-    y = my - 4
 
-    MakeCheck(C, "Also roll every weapon type",
-        "Roll on any weapon, not just ones a selected class can use.",
-        X, y,
-        function() return A.db.miscWeapons end,
-        function(v) A.db.miscWeapons = v end)
-    y = y - 24
+    Grid(A.ARMOR_TYPE_ORDER,
+        function(t) return A.db.miscArmor and A.db.miscArmor[t] and true or false end,
+        function(t, v) A:SetMiscArmor(t, v) end,
+        "Also roll on ")
 
-    MakeCheck(C, "Also roll offhands and shields",
-        "Shields and held-in-off-hand items, even when no selected class uses them.",
-        X, y,
-        function() return A.db.miscOffhand end,
-        function(v) A.db.miscOffhand = v end)
-    y = y - 24
+    MakeHeader(C, "Weapon types", X - 2, y);  y = y - 26
+    MakeNote(C, "Extras on top of the classes above.", X, y);  y = y - 22
+    Grid(A.WEAPON_TYPE_ORDER,
+        function(t) return A.db.miscWeapons and A.db.miscWeapons[t] and true or false end,
+        function(t, v) A:SetMiscWeapon(t, v) end,
+        "Also roll on ")
+
+    MakeHeader(C, "Offhands", X - 2, y);  y = y - 26
+    MakeNote(C, "Extras on top of the classes above.", X, y);  y = y - 22
+    Grid(A.OFFHAND_TYPE_ORDER,
+        function(t) return A.db.miscOffhand and A.db.miscOffhand[t] and true or false end,
+        function(t, v) A:SetMiscOffhand(t, v) end,
+        "Also roll on ")
 
     MakeCheck(C, "Ignore level requirements",
-        "Derive armor as if you were level 80. Useful when collecting gear for an alt.",
+        "Derive armor as if you were level 80. Turn this off while levelling to roll on the type you can actually wear right now.",
         X, y,
         function() return A.db.ignoreLevel end,
         function(v) A.db.ignoreLevel = v end)
@@ -353,12 +349,11 @@ function A:BuildOptions()
     MakeHeader(C, "Actions", X - 2, y);  y = y - 40
 
     local acts = {
-        { "Unusable gear",  "unusableAction"   },
-        { "Trade goods",    "tradeGoodsAction" },
-        { "Bind-on-equip",  "boeAction"        },
-        { "Unknown recipes","recipeAction"     },
-        { "Lockboxes",      "lockboxAction"    },
-        { "Nothing matched","fallbackAction"   },
+        { "Bind-on-equip",   "boeAction"        },
+        { "Trade goods",     "tradeGoodsAction" },
+        { "Lockboxes",       "lockboxAction"    },
+        { "Unknown recipes", "recipeAction"     },
+        { "Nothing matched", "fallbackAction"   },
     }
     for i = 1, #acts, 2 do
         MakeDropdown(C, acts[i][1], X - 4, y, acts[i][2], ACTION_CHOICES, 100)
@@ -374,7 +369,7 @@ function A:BuildOptions()
 
     for _, rule in ipairs(A.ruleList) do
         local key = rule.key
-        MakeCheck(C, ("|cff808080[%d]|r %s"):format(rule.priority, rule.label),
+        MakeCheck(C, rule.label,
             "Rule key: " .. key,
             X, y,
             function() return A.db.rules[key] end,

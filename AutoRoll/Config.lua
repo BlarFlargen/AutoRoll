@@ -53,9 +53,7 @@ A.defaults = {
         alreadyKnown  = true,
         recipe        = true,
         classToken    = true,
-        duplicate     = true,
         gearType      = true,
-        unusable      = true,
         lockbox       = true,
         tradeGoods    = true,
         boe           = true,
@@ -74,16 +72,17 @@ A.defaults = {
 
     -- Which classes to roll gear for. Absent means "just my own class".
     -- needClasses = { PALADIN = true, WARRIOR = true }
-    ignoreLevel = false,   -- derive armor as if level 80, for gearing alts
+    -- Derive armor as if level 80. On by default: the level-gated armor type
+    -- is only correct while you are actually levelling that character, and
+    -- being handed the wrong type silently is worse than being over-inclusive.
+    ignoreLevel = true,
 
-    -- Misc opt-ins layered on top of the class selection.
-    miscArmor   = {},      -- extra armor types by name
-    miscWeapons = false,   -- roll every weapon type
-    miscOffhand = false,   -- roll shields and held-in-off-hand
+    -- Misc opt-ins layered on top of the class selection, each per-type so a
+    -- single extra weapon can be added without taking all fifteen.
+    miscArmor   = {},
+    miscWeapons = {},
+    miscOffhand = {},
 
-    -- What to do with something you already own. NEED, GREED, PASS or IGNORE.
-    duplicateAction          = "PASS",
-    duplicateIncludeEquipped = false,   -- count what you are wearing too
 
     -- db.armorNeed and db.weaponNeed are deliberately absent here. Absent means
     -- "work it out from class and level"; the options panel writes a real table
@@ -92,11 +91,10 @@ A.defaults = {
     -- How many times to wait 0.3s for GetItemInfo to populate before giving up.
     itemInfoRetries   = 12,
 
-    recipeAction      = "GREED",
-    unusableAction    = "GREED",
-    tradeGoodsAction  = "GREED",
-    lockboxAction     = "GREED",
-    boeAction         = "GREED",
+    recipeAction      = "NEED",
+    tradeGoodsAction  = "NEED",
+    lockboxAction     = "NEED",
+    boeAction         = "NEED",
     boeQualityMin     = 2,        -- only auto-greed BoE at/above this quality
     fallbackAction    = "PASS",
 
@@ -164,7 +162,7 @@ end
 -- would otherwise sit in the saved variables forever, doing nothing.
 --=========================================================================
 
-A.DB_VERSION = 4
+A.DB_VERSION = 7
 
 local function Migrate(profile)
     local from = profile.__version or 1
@@ -221,6 +219,55 @@ local function Migrate(profile)
             profile.rules.weaponType = nil
             profile.rules.usableGear = nil
             if profile.rules.gearType == nil then profile.rules.gearType = true end
+        end
+    end
+
+    if from < 5 then
+        -- miscWeapons and miscOffhand were all-or-nothing booleans and are now
+        -- per-type tables. A true expands to every type, which preserves what
+        -- the switch actually did.
+        if profile.miscWeapons == true then
+            profile.miscWeapons = {}
+            for _, t in ipairs(A.WEAPON_TYPE_ORDER or {}) do profile.miscWeapons[t] = true end
+        elseif type(profile.miscWeapons) ~= "table" then
+            profile.miscWeapons = {}
+        end
+
+        if profile.miscOffhand == true then
+            profile.miscOffhand = {}
+            for _, t in ipairs(A.OFFHAND_TYPE_ORDER or {}) do profile.miscOffhand[t] = true end
+        elseif type(profile.miscOffhand) ~= "table" then
+            profile.miscOffhand = {}
+        end
+
+        profile.ignoreLevel = true
+    end
+
+    if from < 6 then
+        -- The "items you already own" rule is gone: owning a copy is not a
+        -- reason to skip a roll, and the check could not tell a spare you were
+        -- saving from one you simply had not equipped yet.
+        profile.duplicateAction          = nil
+        profile.duplicateIncludeEquipped = nil
+        if profile.rules then profile.rules.duplicate = nil end
+    end
+
+    if from < 7 then
+        -- The unusable rule is gone: the gear rule at 89 is now exhaustive for
+        -- armor and weapons, so nothing could reach it.
+        profile.unusableAction = nil
+        if profile.rules then profile.rules.unusable = nil end
+
+        -- Action defaults changed to NEED. Only move profiles still sitting on
+        -- the old default -- a deliberate choice is left alone.
+        local changed = {
+            recipeAction     = "GREED",
+            tradeGoodsAction = "GREED",
+            lockboxAction    = "GREED",
+            boeAction        = "GREED",
+        }
+        for key, oldDefault in pairs(changed) do
+            if profile[key] == oldDefault then profile[key] = "NEED" end
         end
     end
 
