@@ -1,6 +1,6 @@
 # AutoRoll
 
-Automatic group loot rolling for WoW 3.3.5a (Interface 30300).
+Automatic group loot rolling for World of Warcraft 3.3.5a, created using AI.
 
 ## Install
 
