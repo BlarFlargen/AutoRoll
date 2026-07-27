@@ -1,8 +1,8 @@
 ## Interface: 30300
 ## Title: AutoRoll
-## Notes: Automatic group loot rolling. Priority rule engine, per-character profiles, roll history.
+## Notes: Automatic group loot rolling. Class-based gear selection, per-character profiles, roll history.
 ## Author: BlarFlargen (AI)
-## Version: 1.0
+## Version: 2.0
 ## SavedVariables: AutoRollDB
 ## SavedVariablesPerCharacter: AutoRollCharDB
 

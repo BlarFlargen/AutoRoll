@@ -7,7 +7,7 @@ AutoRoll = AutoRoll or {}
 local A = AutoRoll
 
 A.addonName = "AutoRoll"
-A.version   = "1.0"
+A.version   = "2.0"
 
 --- Roll actions accepted by RollOnLoot(rollID, action).
 --  0/1/2 are guaranteed on 3.3.5a. 3 (disenchant) is a Cataclysm-era value
@@ -53,9 +53,8 @@ A.defaults = {
         alreadyKnown  = true,
         recipe        = true,
         classToken    = true,
-        weaponType    = true,
-        armorType     = true,
-        usableGear    = true,
+        duplicate     = true,
+        gearType      = true,
         unusable      = true,
         lockbox       = true,
         tradeGoods    = true,
@@ -70,10 +69,21 @@ A.defaults = {
 
     -- Armor of a atype your class does not wear. Split by bind type because
     -- a BoE is worth money and a BoP is worth nothing to you.
-    wrongArmorBoEAction = "GREED",
-    wrongArmorBoPAction = "PASS",
-    wrongWeaponBoEAction = "GREED",
-    wrongWeaponBoPAction = "PASS",
+    wrongGearBoEAction = "GREED",
+    wrongGearBoPAction = "PASS",
+
+    -- Which classes to roll gear for. Absent means "just my own class".
+    -- needClasses = { PALADIN = true, WARRIOR = true }
+    ignoreLevel = false,   -- derive armor as if level 80, for gearing alts
+
+    -- Misc opt-ins layered on top of the class selection.
+    miscArmor   = {},      -- extra armor types by name
+    miscWeapons = false,   -- roll every weapon type
+    miscOffhand = false,   -- roll shields and held-in-off-hand
+
+    -- What to do with something you already own. NEED, GREED, PASS or IGNORE.
+    duplicateAction          = "PASS",
+    duplicateIncludeEquipped = false,   -- count what you are wearing too
 
     -- db.armorNeed and db.weaponNeed are deliberately absent here. Absent means
     -- "work it out from class and level"; the options panel writes a real table
@@ -154,7 +164,7 @@ end
 -- would otherwise sit in the saved variables forever, doing nothing.
 --=========================================================================
 
-A.DB_VERSION = 3
+A.DB_VERSION = 4
 
 local function Migrate(profile)
     local from = profile.__version or 1
@@ -190,6 +200,28 @@ local function Migrate(profile)
             end
         end
         if profile.rules then profile.rules.weaponType = true end
+    end
+
+    if from < 4 then
+        -- Armor and weapon type lists collapsed into class selection. The old
+        -- per-type tables cannot be mapped back onto classes reliably -- two
+        -- classes share Plate -- so they are dropped and the selection resets
+        -- to the player's own class, which is what almost everyone had anyway.
+        profile.armorNeed  = nil
+        profile.weaponNeed = nil
+        profile.wrongGearBoEAction = profile.wrongArmorBoEAction or "GREED"
+        profile.wrongGearBoPAction = profile.wrongArmorBoPAction or "PASS"
+        profile.wrongArmorBoEAction  = nil
+        profile.wrongArmorBoPAction  = nil
+        profile.wrongWeaponBoEAction = nil
+        profile.wrongWeaponBoPAction = nil
+
+        if profile.rules then
+            profile.rules.armorType  = nil
+            profile.rules.weaponType = nil
+            profile.rules.usableGear = nil
+            if profile.rules.gearType == nil then profile.rules.gearType = true end
+        end
     end
 
     profile.__version = A.DB_VERSION

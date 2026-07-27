@@ -107,6 +107,20 @@ function A:Execute(ctx, action, ruleKey, reason)
         return
     end
 
+    -- Last check before committing. Anything else that answers rolls -- a
+    -- server-side loot filter, another addon, or you clicking a button -- may
+    -- have closed this one while we waited out the roll delay. Rolling into a
+    -- closed roll is at best wasted and at worst a double answer, so confirm
+    -- it is still live at the moment we act rather than only when we decided.
+    if ctx.rollID then
+        local ok, timeLeft = pcall(GetLootRollTimeLeft, ctx.rollID)
+        if not ok or not timeLeft or timeLeft <= 0 then
+            A:Debug(("roll %d was answered elsewhere; not rolling")
+                :format(ctx.rollID))
+            return
+        end
+    end
+
     RollOnLoot(ctx.rollID, action)
 
     -- Rolling need or greed on a bind-on-pickup item raises a confirmation
@@ -138,6 +152,44 @@ local queue = {}
 
 local RETRY_INTERVAL = 0.3
 
+--=========================================================================
+-- Async data hooks
+--
+-- Custom servers often answer questions asynchronously: you call a Request
+-- function and the reply lands in a table some milliseconds later. Deciding
+-- before it arrives is the same bug class as deciding before GetItemInfo has
+-- populated, so the queue treats both the same way.
+--
+--   A:AddPrefetch(fn)     fn(itemID, link) fires the moment a roll starts
+--   A:AddReadyCheck(fn)   fn(ctx) -> true when its data has arrived
+--
+-- A ready check that never returns true just costs the retry budget and then
+-- decides anyway, so a broken or missing server API degrades to normal
+-- behaviour rather than hanging the roll.
+--=========================================================================
+
+A.prefetchers = {}
+A.readyChecks = {}
+
+function A:AddPrefetch(fn)   table.insert(A.prefetchers, fn) end
+function A:AddReadyCheck(fn) table.insert(A.readyChecks, fn) end
+
+local function RunPrefetch(itemID, link)
+    for _, fn in ipairs(A.prefetchers) do
+        local ok, err = pcall(fn, itemID, link)
+        if not ok then A:Debug("prefetch error: " .. tostring(err)) end
+    end
+end
+
+--- Returns true when every registered check is satisfied.
+local function AllReady(ctx)
+    for _, fn in ipairs(A.readyChecks) do
+        local ok, ready = pcall(fn, ctx)
+        if ok and not ready then return false end
+    end
+    return true
+end
+
 local function Enqueue(rollID)
     queue[rollID] = { fireAt = GetTime() + (A.db.rollDelay or 1.5), tries = 0 }
 end
@@ -167,14 +219,15 @@ f:SetScript("OnUpdate", function(self, delta)
                 if not ctx then
                     queue[rollID] = nil
 
-                elseif not resolved and entry.tries < (A.db.itemInfoRetries or 12) then
-                    -- Item is not in the local cache yet. Deciding now would
-                    -- silently skip every gear rule, so wait. The GetItemInfo
-                    -- call inside BuildContext is itself what asks the server
-                    -- for the data, so simply retrying is the fix.
+                elseif (not resolved or not AllReady(ctx))
+                       and entry.tries < (A.db.itemInfoRetries or 12) then
+                    -- Either the item is not in the local cache yet, or a
+                    -- server API we asked has not answered. Deciding now would
+                    -- silently skip rules, so wait. The GetItemInfo call inside
+                    -- BuildContext is itself what asks the client for the data.
                     entry.tries  = entry.tries + 1
                     entry.fireAt = now + RETRY_INTERVAL
-                    A:Debug(("waiting on item data for roll %d (try %d)")
+                    A:Debug(("waiting on data for roll %d (try %d)")
                         :format(rollID, entry.tries))
 
                 else
@@ -280,6 +333,12 @@ f:SetScript("OnEvent", function(self, event, arg1, arg2)
             return
         end
 
+        -- Ask any server APIs now, not at decision time: an async reply needs
+        -- the whole rollDelay to travel, and asking late wastes it.
+        local link = GetLootRollItemLink(rollID)
+        local itemID = link and tonumber(link:match("item:(%d+)"))
+        if itemID then RunPrefetch(itemID, link) end
+
         Enqueue(rollID)
     end
 end)
@@ -326,20 +385,15 @@ function A:TraceItem(input)
         unusable and "|cffff4444no|r" or "|cff1eff00yes|r",
         unusable and ("  red line: " .. tostring(why)) or ""))
 
-    local typeSet, needSet, report
-    if itemClass == A.LC.ARMOR and itemSubClass and A.ARMOR_TYPES[itemSubClass] then
-        typeSet, needSet, report = "armor", A:GetArmorNeedSet(), A:ArmorSetString()
-    elseif itemClass == A.LC.WEAPON and itemSubClass and A.WEAPON_TYPES[itemSubClass] then
-        typeSet, needSet, report = "weapon", A:GetWeaponNeedSet(), A:WeaponSetString()
+    if itemClass == A.LC.ARMOR or itemClass == A.LC.WEAPON then
+        A:Print("  rolling for: " .. A:ClassSetString())
+        A:Print("  " .. A:GearSetString())
     end
-    if typeSet then
-        local ticked = needSet[itemSubClass]
-        A:Print(("  %s type=%s  ticked: %s")
-            :format(typeSet,
-                    ticked and ("|cff1eff00" .. itemSubClass .. "|r")
-                            or ("|cffff4444" .. itemSubClass .. "|r"),
-                    report))
-    end
+
+    local own, ownWhy = A:AlreadyOwn(itemID)
+    A:Print(("  already own=%s%s"):format(
+        own and "|cffff8800yes|r" or "|cff1eff00no|r",
+        own and ("  " .. tostring(ownWhy)) or ""))
 
     local delta, equipped = A:GetUpgradeDelta(link)
     if delta then
@@ -478,6 +532,15 @@ function A:Probe()
     local candidates = {
         "GetItemInfoCustom", "GetItemTagsCustom", "IsUsableItem",
     }
+    -- Anything the server added under its own prefix. Loot filters and similar
+    -- systems tend to namespace themselves, so this catches them without
+    -- needing to know the names in advance.
+    for name, value in pairs(_G) do
+        if type(name) == "string" and name:find("^Peloria") then
+            table.insert(candidates, name)
+        end
+    end
+    table.sort(candidates)
     for _, apiName in ipairs(candidates) do
         A:Print(("  %-28s %s"):format(apiName,
             _G[apiName] and "|cff1eff00present|r" or "|cff808080absent|r"))
@@ -486,73 +549,126 @@ function A:Probe()
     A:Print("---------------")
 end
 
---- Human-readable list of the types this character rolls Need on.
-local function SetString(order, set, manual)
+--- Human-readable summary of what this character rolls Need on.
+function A:ClassSetString()
     local out = {}
-    for _, t in ipairs(order) do
-        if set[t] then table.insert(out, t) end
+    for _, token in ipairs(A.CLASS_ORDER) do
+        if A:GetNeedClasses()[token] then
+            table.insert(out, A.CLASS_LABEL[token] or token)
+        end
     end
     if #out == 0 then return "|cffff4444none|r" end
     return table.concat(out, ", ") ..
-        (manual and "  |cff808080(manual)|r" or "  |cff808080(auto)|r")
+        (A.db.needClasses and "  |cff808080(manual)|r" or "  |cff808080(auto)|r")
 end
 
-function A:ArmorSetString()
-    return SetString(A.ARMOR_TYPE_ORDER, A:GetArmorNeedSet(), A.db.armorNeed)
+function A:GearSetString()
+    local armor, weapons, relics, offhand = A:GetNeedSets()
+    local a, w, r = {}, 0, {}
+    for _, t in ipairs(A.ARMOR_TYPE_ORDER) do if armor[t] then table.insert(a, t) end end
+    for _, t in ipairs(A.WEAPON_TYPE_ORDER) do if weapons[t] then w = w + 1 end end
+    for _, t in ipairs(A.RELIC_TYPE_ORDER) do if relics[t] then table.insert(r, t) end end
+    return ("armor: %s | weapons: %d types | relics: %s | offhand: %s")
+        :format(#a > 0 and table.concat(a, ", ") or "none",
+                w,
+                #r > 0 and table.concat(r, ", ") or "none",
+                offhand and "yes" or "no")
 end
 
-function A:WeaponSetString()
-    return SetString(A.WEAPON_TYPE_ORDER, A:GetWeaponNeedSet(), A.db.weaponNeed)
-end
-
---- One handler for both /ar armor and /ar weapon; they differ only in data.
-local function HandleTypes(kind, sub, rest)
-    local isArmor = (kind == "armor")
-    local order   = isArmor and A.ARMOR_TYPE_ORDER or A.WEAPON_TYPE_ORDER
-    local setter  = isArmor and A.SetArmorType     or A.SetWeaponType
-    local resetFn = isArmor and A.ResetArmorTypes  or A.ResetWeaponTypes
-    local report  = isArmor and A.ArmorSetString   or A.WeaponSetString
-    local fellBack = isArmor and A.LA.fellBack or A.LW.fellBack
-
+--- /ar class [add|remove|only <class>] [auto]
+local function HandleClass(sub, rest)
     if sub == "" or sub == "list" then
-        local _, token = UnitClass("player")
-        A:Print(("%s %s level %d rolls Need on:"):format(
-            kind, tostring(token), UnitLevel("player") or 0))
-        A:Print("  " .. report(A))
-        A:Print("  available: " .. table.concat(order, ", ") ..
-            (fellBack and "  |cffff8800(detection fell back to English)|r" or ""))
-        A:Print(("usage: /ar %s add|remove <type>  |  /ar %s auto"):format(kind, kind))
+        A:Print("rolling gear for: " .. A:ClassSetString())
+        A:Print("  " .. A:GearSetString())
+        A:Print(("level %d%s"):format(UnitLevel("player") or 0,
+            A.db.ignoreLevel and "  |cff808080(ignoring level)|r" or ""))
+        A:Print("usage: /ar class add|remove|only <class>  |  /ar class auto")
+        A:Print("valid: " .. table.concat(A.CLASS_ORDER, ", "):lower())
         return
     end
 
     if sub == "auto" or sub == "reset" then
-        resetFn(A)
-        A:Print(kind .. " types back to class default: " .. report(A))
+        A:ResetNeedClasses()
+        A:Print("back to your own class: " .. A:ClassSetString())
         if A.RefreshOptions then A:RefreshOptions() end
         return
     end
 
-    -- Match what was typed case-insensitively against what the client uses.
     local target
-    for _, t in ipairs(order) do
-        if t:lower() == rest:lower() then target = t end
+    local want = rest:upper():gsub("%s+", "")
+    for _, token in ipairs(A.CLASS_ORDER) do
+        if token == want or token:sub(1, #want) == want then target = token end
     end
     if not target then
-        A:Print("unknown " .. kind .. " type: " .. tostring(rest))
-        A:Print("valid: " .. table.concat(order, ", "))
+        A:Print("unknown class: " .. tostring(rest))
+        A:Print("valid: " .. table.concat(A.CLASS_ORDER, ", "):lower())
         return
     end
 
     if sub == "add" then
-        setter(A, target, true)
+        A:SetNeedClass(target, true)
     elseif sub == "remove" or sub == "rem" then
-        setter(A, target, false)
+        A:SetNeedClass(target, false)
+    elseif sub == "only" then
+        A.db.needClasses = { [target] = true }
     else
-        A:Print(("usage: /ar %s add|remove <type>  |  /ar %s auto"):format(kind, kind))
+        A:Print("usage: /ar class add|remove|only <class>  |  /ar class auto")
         return
     end
 
-    A:Print("now rolling Need on: " .. report(A))
+    A:Print("rolling gear for: " .. A:ClassSetString())
+    A:Print("  " .. A:GearSetString())
+    if A.RefreshOptions then A:RefreshOptions() end
+end
+
+--- /ar misc armor <type> | weapons | offhand | level
+local function HandleMisc(sub, rest)
+    sub = sub:lower()
+
+    if sub == "" or sub == "list" then
+        local extra = {}
+        for t, on in pairs(A.db.miscArmor or {}) do
+            if on then table.insert(extra, t) end
+        end
+        table.sort(extra)
+        A:Print("misc opt-ins:")
+        A:Print("  extra armor: " .. (#extra > 0 and table.concat(extra, ", ") or "none"))
+        A:Print("  all weapons: " .. (A.db.miscWeapons and "yes" or "no"))
+        A:Print("  offhands:    " .. (A.db.miscOffhand and "yes" or "no"))
+        A:Print("  ignore level:" .. (A.db.ignoreLevel and " yes" or " no"))
+        A:Print("usage: /ar misc armor <type> | weapons | offhand | level")
+        return
+    end
+
+    if sub == "weapons" then
+        A.db.miscWeapons = not A.db.miscWeapons
+        A:Print("roll all weapon types: " .. (A.db.miscWeapons and "yes" or "no"))
+    elseif sub == "offhand" then
+        A.db.miscOffhand = not A.db.miscOffhand
+        A:Print("roll offhands and shields: " .. (A.db.miscOffhand and "yes" or "no"))
+    elseif sub == "level" then
+        A.db.ignoreLevel = not A.db.ignoreLevel
+        A:Print("ignore level requirements: " .. (A.db.ignoreLevel and "yes" or "no"))
+    elseif sub == "armor" then
+        local target
+        for _, t in ipairs(A.ARMOR_TYPE_ORDER) do
+            if t:lower() == rest:lower() then target = t end
+        end
+        if not target then
+            A:Print("unknown armor type: " .. tostring(rest))
+            A:Print("valid: " .. table.concat(A.ARMOR_TYPE_ORDER, ", "))
+            return
+        end
+        A.db.miscArmor = A.db.miscArmor or {}
+        local now = not A.db.miscArmor[target]
+        A:SetMiscArmor(target, now)
+        A:Print(("extra armor %s: %s"):format(target, now and "yes" or "no"))
+    else
+        A:Print("usage: /ar misc armor <type> | weapons | offhand | level")
+        return
+    end
+
+    A:Print("  " .. A:GearSetString())
     if A.RefreshOptions then A:RefreshOptions() end
 end
 
@@ -679,11 +795,29 @@ SlashCmdList["AUTOROLL"] = function(msg)
     elseif cmd == "probe" then
         A:Probe()
 
-    elseif cmd == "armor" or cmd == "armour" then
-        HandleTypes("armor", sub, tail)
+    elseif cmd == "class" or cmd == "classes" then
+        HandleClass(sub, tail)
 
-    elseif cmd == "weapon" or cmd == "weapons" then
-        HandleTypes("weapon", sub, tail)
+    elseif cmd == "misc" then
+        HandleMisc(sub, tail)
+
+    elseif cmd == "dupe" or cmd == "duplicate" then
+        local want = rest:upper()
+        if want == "NEED" or want == "GREED" or want == "PASS" or want == "IGNORE" then
+            A.db.duplicateAction = want
+            A:Print("items you already own: |cffffffff" .. want .. "|r")
+            if A.RefreshOptions then A:RefreshOptions() end
+        elseif want == "EQUIPPED" then
+            A.db.duplicateIncludeEquipped = not A.db.duplicateIncludeEquipped
+            A:Print("count equipped items as owned: " ..
+                (A.db.duplicateIncludeEquipped and "yes" or "no"))
+            if A.RefreshOptions then A:RefreshOptions() end
+        else
+            A:Print("usage: /ar dupe need|greed|pass|ignore  |  /ar dupe equipped")
+            A:Print(("currently %s, equipped counted: %s"):format(
+                A.db.duplicateAction,
+                A.db.duplicateIncludeEquipped and "yes" or "no"))
+        end
 
     elseif cmd == "profile" then
         HandleProfile(sub, tail)
@@ -706,8 +840,9 @@ SlashCmdList["AUTOROLL"] = function(msg)
         A:Print("  /ar status              list rules and their priority")
         A:Print("  /ar test <item>         dry run a link, ID or name")
         A:Print("  /ar trace <item>        show every rule's verdict")
-        A:Print("  /ar armor               armor types you roll Need on")
-        A:Print("  /ar weapon              weapon types you roll Need on")
+        A:Print("  /ar class               classes you roll gear for")
+        A:Print("  /ar misc                extra armor, weapons, offhands")
+        A:Print("  /ar dupe <action>       what to do with items you already own")
         A:Print("  /ar probe               dump server roll data (run during a roll)")
         A:Print("  /ar log                 open the roll history")
         A:Print("  /ar delay <seconds>")

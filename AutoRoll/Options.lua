@@ -13,7 +13,7 @@
 
 local A = AutoRoll
 
-local refreshers = {}
+local refreshers = {}   -- functions that pull widget state back from the db
 local uid = 0
 local function NextName(prefix)
     uid = uid + 1
@@ -34,6 +34,7 @@ local function MakeCheck(parent, label, tooltip, x, y, get, set)
     check:SetHeight(24)
     check:SetPoint("TOPLEFT", x, y)
 
+    -- 3.3.5a's SetFontObject wants the font object itself, not its name.
     local text = _G[name .. "Text"]
     text:SetText(label)
     text:SetFontObject(GameFontHighlightSmall)
@@ -150,6 +151,8 @@ end
 
 local ACTION_CHOICES = { "NEED", "GREED", "PASS", "IGNORE" }
 
+--- Quality names come from the client, so they are already localised and
+--- already carry the right colour.
 local function QualityChoices()
     local out = {}
     for q = 2, 6 do
@@ -191,9 +194,10 @@ function A:BuildOptions()
 
     local content = CreateFrame("Frame", "AutoRollOptionsContent", scroll)
     content:SetWidth(CONTENT_WIDTH)
-    content:SetHeight(1200)         
+    content:SetHeight(1200)          -- corrected to the real height below
     scroll:SetScrollChild(content)
 
+    -- UIPanelScrollFrameTemplate has no wheel handler of its own on 3.3.5a.
     scroll:EnableMouseWheel(true)
     scroll:SetScript("OnMouseWheel", function(self, delta)
         local bar = _G[self:GetName() .. "ScrollBar"]
@@ -229,61 +233,104 @@ function A:BuildOptions()
         "manualQualityMin", QualityChoices(), 130)
     y = y - 50
 
-    ------------------------------------------------------------------ armor
-    MakeHeader(C, "Armor types", X - 2, y);  y = y - 30
+    ------------------------------------------------------------- duplicates
+    MakeHeader(C, "Items you already own", X - 2, y);  y = y - 40
 
-    local ay = y
+    MakeDropdown(C, "Already in your bags", X - 4, y, "duplicateAction",
+        ACTION_CHOICES, 110)
+    y = y - 46
+
+    MakeCheck(C, "Also count what you have equipped",
+        "By default only your bags are checked. Tick this to treat an item you are already wearing as one you own.",
+        X, y,
+        function() return A.db.duplicateIncludeEquipped end,
+        function(v) A.db.duplicateIncludeEquipped = v end)
+    y = y - 42
+
+    ---------------------------------------------------------------- classes
+    MakeHeader(C, "Roll gear for these classes", X - 2, y);  y = y - 28
+
+    local note = C:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    note:SetPoint("TOPLEFT", X, y)
+    note:SetWidth(CONTENT_WIDTH - 40)
+    note:SetJustifyH("LEFT")
+    note:SetText("Armor, weapons, shields and relics are all derived from this. " ..
+                 "Armor follows your level: plate classes roll mail below 40.")
+    y = y - 28
+
+    local cy = y
+    for i, token in ipairs(A.CLASS_ORDER) do
+        local t = token
+        local col = ((i - 1) % 2 == 0) and X or (X + 190)
+        MakeCheck(C, A.CLASS_LABEL[t] or t,
+            "Roll on gear a " .. (A.CLASS_LABEL[t] or t) .. " can use.",
+            col, cy,
+            function() return A:GetNeedClasses()[t] and true or false end,
+            function(v) A:SetNeedClass(t, v) end)
+        if (i % 2 == 0) or i == #A.CLASS_ORDER then cy = cy - 24 end
+    end
+    y = cy - 8
+
+    MakeButton(C, "Just my class", 130, X, y, function()
+        A:ResetNeedClasses()
+        A:RefreshOptions()
+        A:Print("rolling gear for: " .. A:ClassSetString())
+    end)
+    y = y - 40
+
+    MakeDropdown(C, "Unselected gear, BoE", X - 4, y, "wrongGearBoEAction", ACTION_CHOICES, 100)
+    MakeDropdown(C, "Unselected gear, BoP", X + 190, y, "wrongGearBoPAction", ACTION_CHOICES, 100)
+    y = y - 52
+
+    ------------------------------------------------------------------- misc
+    MakeHeader(C, "Misc", X - 2, y);  y = y - 28
+
+    local mnote = C:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    mnote:SetPoint("TOPLEFT", X, y)
+    mnote:SetWidth(CONTENT_WIDTH - 40)
+    mnote:SetJustifyH("LEFT")
+    mnote:SetText("Extras on top of the classes above.")
+    y = y - 24
+
+    local my = y
     for i, atype in ipairs(A.ARMOR_TYPE_ORDER) do
         local t = atype
         local col = ((i - 1) % 2 == 0) and X or (X + 190)
-        MakeCheck(C, t, "Roll Need on " .. t .. ".",
-            col, ay,
-            function() return A:GetArmorNeedSet()[t] and true or false end,
-            function(v) A:SetArmorType(t, v) end)
-        if (i % 2 == 0) or i == #A.ARMOR_TYPE_ORDER then ay = ay - 24 end
+        MakeCheck(C, "Also roll " .. t,
+            "Roll on " .. t .. " even when no selected class wears it.",
+            col, my,
+            function() return A.db.miscArmor and A.db.miscArmor[t] and true or false end,
+            function(v) A:SetMiscArmor(t, v) end)
+        if (i % 2 == 0) or i == #A.ARMOR_TYPE_ORDER then my = my - 24 end
     end
-    y = ay - 8
+    y = my - 4
 
-    MakeButton(C, "Auto (by class)", 130, X, y, function()
-        A:ResetArmorTypes()
-        A:RefreshOptions()
-        A:Print("armor types back to class default: " .. A:ArmorSetString())
-    end)
-    y = y - 44
+    MakeCheck(C, "Also roll every weapon type",
+        "Roll on any weapon, not just ones a selected class can use.",
+        X, y,
+        function() return A.db.miscWeapons end,
+        function(v) A.db.miscWeapons = v end)
+    y = y - 24
 
-    MakeDropdown(C, "Unchecked armor, BoE", X - 4, y, "wrongArmorBoEAction", ACTION_CHOICES, 100)
-    MakeDropdown(C, "Unchecked armor, BoP", X + 190, y, "wrongArmorBoPAction", ACTION_CHOICES, 100)
-    y = y - 52
+    MakeCheck(C, "Also roll offhands and shields",
+        "Shields and held-in-off-hand items, even when no selected class uses them.",
+        X, y,
+        function() return A.db.miscOffhand end,
+        function(v) A.db.miscOffhand = v end)
+    y = y - 24
 
-    ---------------------------------------------------------------- weapons
-    MakeHeader(C, "Weapon types", X - 2, y);  y = y - 30
-
-    local wy = y
-    for i, wtype in ipairs(A.WEAPON_TYPE_ORDER) do
-        local t = wtype
-        local col = ((i - 1) % 2 == 0) and X or (X + 190)
-        MakeCheck(C, t, "Roll Need on " .. t .. ".",
-            col, wy,
-            function() return A:GetWeaponNeedSet()[t] and true or false end,
-            function(v) A:SetWeaponType(t, v) end)
-        if (i % 2 == 0) or i == #A.WEAPON_TYPE_ORDER then wy = wy - 24 end
-    end
-    y = wy - 8
-
-    MakeButton(C, "Auto (by class)", 130, X, y, function()
-        A:ResetWeaponTypes()
-        A:RefreshOptions()
-        A:Print("weapon types back to class default: " .. A:WeaponSetString())
-    end)
-    y = y - 44
-
-    MakeDropdown(C, "Unchecked weapon, BoE", X - 4, y, "wrongWeaponBoEAction", ACTION_CHOICES, 100)
-    MakeDropdown(C, "Unchecked weapon, BoP", X + 190, y, "wrongWeaponBoPAction", ACTION_CHOICES, 100)
-    y = y - 52
+    MakeCheck(C, "Ignore level requirements",
+        "Derive armor as if you were level 80. Useful when collecting gear for an alt.",
+        X, y,
+        function() return A.db.ignoreLevel end,
+        function(v) A.db.ignoreLevel = v end)
+    y = y - 24
 
     MakeCheck(C, "Require the item be usable",
-        "Second check on top of the type lists: never Need gear the tooltip marks in red.",
-        X, y, function() return A.db.requireUsable end, function(v) A.db.requireUsable = v end)
+        "Never Need gear the tooltip marks in red.",
+        X, y,
+        function() return A.db.requireUsable end,
+        function(v) A.db.requireUsable = v end)
     y = y - 42
 
     ----------------------------------------------------------------- timing
@@ -366,6 +413,8 @@ function A:BuildOptions()
     y = y - 40
 
     ----------------------------------------------------------------- finish
+    -- Size the scroll child to what we actually laid out. Getting this wrong
+    -- is what makes a scroll frame refuse to scroll to the last widget.
     content:SetHeight(math.abs(y) + 20)
 
     panel.refresh = function() A:RefreshOptions() end
