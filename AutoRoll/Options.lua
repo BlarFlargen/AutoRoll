@@ -249,8 +249,7 @@ function A:BuildOptions()
     note:SetPoint("TOPLEFT", X, y)
     note:SetWidth(CONTENT_WIDTH - 40)
     note:SetJustifyH("LEFT")
-    note:SetText("Armor, weapons, shields and relics are all derived from this. " ..
-                 "Armor follows your level: plate classes roll mail below 40.")
+    note:SetText("Armor follows your level. Plate classes roll mail below 40, etc.")
     y = y - 28
 
     local cy = y
