@@ -1,28 +1,21 @@
 # AutoRoll
 
-Automatic group loot rolling for WoW 3.3.5a (Interface 30300).
-
-Needs gear your class can use, Greeds anything worth money, Passes the rest.
-Every decision comes from an ordered list of rules — the first one that matches
-wins.
+Automatic group loot rolling for World of Warcraft 3.3.5a, created using AI.
 
 ## Install
 
-Drop the `AutoRoll` folder into `World of Warcraft/Interface/AddOns/`, so you
-end up with `Interface/AddOns/AutoRoll/AutoRoll.toc`. The folder name and the
-`.toc` name must match.
+Drop the `AutoRoll` folder into `World of Warcraft/Interface/AddOns/`
 
 ## Getting started
 
-Open the options with `/ar`. The defaults roll for your own class and are
-sensible out of the box, but two things are worth doing before a raid:
+Open the options with `/ar`.
 
 1. `/ar class` — confirm it picked the right class and gear set.
 2. `/ar trace <shift-click an item>` — shows every rule's verdict in order, so
    you can see exactly why something would be Needed or Greeded before it
    matters.
 
-`/ar off` stops it rolling entirely.
+`/ar off` stops rolling entirely.
 
 ## Commands
 
